@@ -1,5 +1,6 @@
-const { NetworkDevices, LatencyLogs, LatencyRecent, DeviceMetrics, DevicesAvailability, Sequelize } = require('../models');
+const { NetworkDevices, LatencyLogs, LatencyRecent, DeviceMetrics, DevicesAvailability, DailyAvailabilitySnapshot, Sequelize } = require('../models');
 const ping = require('ping');
+const { sendTeamsNotification } = require('../services/notificationService');
 
 /**
  * Get average latency per device
@@ -227,11 +228,19 @@ const checkDeviceStatus = async (req, res, next) => {
       extra: ['-n', '3']
     });
 
+    const newStatus = result.alive ? 'up' : 'down';
+
+    // Check for status change for notification
+    const currentMetric = await DeviceMetrics.findOne({ where: { device_id: device.id } });
+    if (currentMetric && currentMetric.status !== newStatus) {
+      sendTeamsNotification(device, newStatus, currentMetric.status);
+    }
+
     const response = {
       device_id: device.id,
       pea_name: device.pea_name,
       gateway: device.gateway,
-      status: result.alive ? 'up' : 'down',
+      status: newStatus,
       latency_ms: result.alive ? parseFloat(result.avg) : null,
       packet_loss: result.alive ? parseFloat(result.packetLoss) : 100,
       checked_at: new Date().toISOString()
@@ -255,6 +264,63 @@ const checkDeviceStatus = async (req, res, next) => {
   }
 };
 
+/**
+ * Get all daily availability snapshots sorted by device_id
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+const getAvailabilitySnapshots = async (req, res, next) => {
+  try {
+    const snapshots = await DailyAvailabilitySnapshot.findAll({
+      order: [
+        ['device_id', 'ASC'],
+        ['date', 'ASC']
+      ],
+      include: [{
+        model: NetworkDevices,
+        as: 'device',
+        attributes: ['pea_name', 'gateway']
+      }]
+    });
+
+    res.status(200).json({
+      success: true,
+      data: snapshots
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get daily availability snapshots for a specific device
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+const getDeviceAvailabilitySnapshots = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const snapshots = await DailyAvailabilitySnapshot.findAll({
+      where: { device_id: id },
+      order: [
+        ['date', 'ASC']
+      ],
+      include: [{
+        model: NetworkDevices,
+        as: 'device',
+        attributes: ['pea_name', 'gateway']
+      }]
+    });
+
+    res.status(200).json({
+      success: true,
+      data: snapshots
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAverageLatency,
   getRecentLatency,
@@ -262,6 +328,8 @@ module.exports = {
   getDeviceMetrics,
   getDeviceAvailability,
   getStatusSummary,
-  checkDeviceStatus
+  checkDeviceStatus,
+  getAvailabilitySnapshots,
+  getDeviceAvailabilitySnapshots
 };
 

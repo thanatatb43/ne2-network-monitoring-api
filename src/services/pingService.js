@@ -1,6 +1,7 @@
 const { NetworkDevices, LatencyLogs, LatencyRecent, DeviceMetrics, Sequelize } = require('../models');
 const { Op } = Sequelize;
 const ping = require('ping');
+const { sendTeamsNotification } = require('./notificationService');
 
 /**
  * Service to ping all network devices in a continuous staggered loop.
@@ -26,6 +27,16 @@ const startContinuousPingLoop = async () => {
         
         console.log(`[PingLoop] Batch ${Math.floor(i/batchSize) + 1}: Pinging ${batch.map(d => d.pea_name).join(', ')}`);
 
+        // Fetch previous statuses to detect changes
+        const previousMetrics = await DeviceMetrics.findAll({
+          where: { device_id: { [Op.in]: batch.map(d => d.id) } },
+          raw: true
+        });
+        const statusMap = previousMetrics.reduce((acc, m) => {
+          acc[m.device_id] = m.status;
+          return acc;
+        }, {});
+
         const batchPromises = batch.map(async (device) => {
           if (!device.gateway) {
             return {
@@ -44,11 +55,20 @@ const startContinuousPingLoop = async () => {
               extra: ['-n', '3']
             });
 
+            const newStatus = res.alive ? 'up' : 'down';
+            
+            // Detect status change and notify
+            const prevStatus = statusMap[device.id];
+            if (prevStatus && newStatus !== prevStatus) {
+              // Notification is async, we don't await it here to avoid slowing down the loop
+              sendTeamsNotification(device, newStatus, prevStatus);
+            }
+
             return {
               device_id: device.id,
               latency_ms: res.alive ? parseFloat(res.avg) : null,
               packet_loss: res.alive ? (res.packetLoss ? parseFloat(res.packetLoss) : 0) : 100,
-              status: res.alive ? 'up' : 'down',
+              status: newStatus,
               checked_at: checkedAt
             };
           } catch (err) {

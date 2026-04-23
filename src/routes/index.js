@@ -7,12 +7,15 @@ const router = express.Router();
 const networkDeviceRoutes = require('./networkDeviceRoutes');
 const latencyRoutes = require('./latencyRoutes');
 const clientRoutes = require('./clientRoutes');
+const authRoutes = require('./authRoutes');
+const diagnosticRoutes = require('./diagnosticRoutes');
+const statsRoutes = require('./statsRoutes');
 
-// router.use('/users', userRoutes);
 router.use('/devices', networkDeviceRoutes);
 router.use('/latency', latencyRoutes);
 router.use('/clients', clientRoutes);
-
-module.exports = router;
+router.use('/auth', authRoutes);
+router.use('/test', diagnosticRoutes);
+router.use('/stats', statsRoutes);
 
 module.exports = router;
