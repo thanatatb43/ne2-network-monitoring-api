@@ -1,4 +1,5 @@
 const { NetworkDevices, LatencyLogs, LatencyRecent, DeviceMetrics, DevicesAvailability, DailyAvailabilitySnapshot, Sequelize } = require('../models');
+const { Op } = Sequelize;
 const ping = require('ping');
 const { sendTeamsNotification } = require('../services/notificationService');
 
@@ -12,18 +13,25 @@ const getAverageLatency = async (req, res, next) => {
     const averages = await LatencyLogs.findAll({
       attributes: [
         'device_id',
-        [Sequelize.fn('AVG', Sequelize.col('latency_ms')), 'avg_latency'],
+        [Sequelize.fn('AVG', Sequelize.literal('NULLIF(latency_ms, 0)')), 'avg_latency'],
         [Sequelize.fn('AVG', Sequelize.col('packet_loss')), 'avg_packet_loss'],
       ],
       include: [
         {
           model: NetworkDevices,
           as: 'device',
-          attributes: ['pea_name', 'province', 'gateway']
+          attributes: ['pea_name', 'pea_type', 'province', 'gateway'],
+          required: true
         }
       ],
       group: ['device_id', 'device.id'],
-      order: [[Sequelize.literal('avg_latency'), 'DESC']]
+      // Sort from better latency to worse latency (lowest to highest)
+      // Non-null values first, then by latency ASC, then by packet loss ASC
+      order: [
+        [Sequelize.literal('AVG(latency_ms) IS NULL'), 'ASC'],
+        [Sequelize.literal('AVG(latency_ms)'), 'ASC'],
+        [Sequelize.literal('AVG(packet_loss)'), 'ASC']
+      ]
     });
 
     res.status(200).json({
@@ -47,7 +55,8 @@ const getRecentLatency = async (req, res, next) => {
         {
           model: NetworkDevices,
           as: 'device',
-          attributes: ['pea_name', 'province', 'gateway']
+          attributes: ['pea_name', 'pea_type', 'province', 'gateway'],
+          required: true
         }
       ],
       order: [['checked_at', 'DESC']]
@@ -70,10 +79,19 @@ const getRecentLatency = async (req, res, next) => {
  */
 const getRecentLatencySummary = async (req, res, next) => {
   try {
+    const offsetHours = process.env.DB_TIMEZONE_OFFSET !== undefined ? parseInt(process.env.DB_TIMEZONE_OFFSET) : 0;
+    const nowWithOffset = new Date(new Date().getTime() + offsetHours * 60 * 60 * 1000);
+    const tenMinutesAgo = new Date(nowWithOffset.getTime() - 10 * 60 * 1000);
+
     const summary = await LatencyRecent.findAll({
+      where: {
+        checked_at: {
+          [Op.gte]: tenMinutesAgo
+        }
+      },
       attributes: [
         [Sequelize.fn('DATE_FORMAT', Sequelize.col('checked_at'), '%Y-%m-%d %H:%i:00'), 'minute'],
-        [Sequelize.fn('AVG', Sequelize.col('latency_ms')), 'avg_latency'],
+        [Sequelize.fn('AVG', Sequelize.literal('NULLIF(latency_ms, 0)')), 'avg_latency'],
         [Sequelize.fn('AVG', Sequelize.col('packet_loss')), 'avg_packet_loss'],
       ],
       group: [Sequelize.fn('DATE_FORMAT', Sequelize.col('checked_at'), '%Y-%m-%d %H:%i:00')],
@@ -101,10 +119,17 @@ const getDeviceMetrics = async (req, res, next) => {
         {
           model: NetworkDevices,
           as: 'device',
-          attributes: ['pea_name', 'province', 'gateway']
+          attributes: ['pea_name', 'pea_type', 'province', 'gateway'],
+          required: true
         }
       ],
-      order: [['checked_at', 'DESC']]
+      // Sort from better latency to worse latency (lowest to highest)
+      // Non-null values first, then by latency ASC, then by packet loss ASC
+      order: [
+        [Sequelize.literal('latency_ms IS NULL'), 'ASC'],
+        ['latency_ms', 'ASC'],
+        ['packet_loss', 'ASC']
+      ]
     });
 
     res.status(200).json({
@@ -132,7 +157,8 @@ const getDeviceAvailability = async (req, res, next) => {
         {
           model: NetworkDevices,
           as: 'device',
-          attributes: ['pea_name', 'province', 'gateway']
+          attributes: ['pea_name', 'pea_type', 'province', 'gateway'],
+          required: true
         }
       ]
     });
@@ -164,8 +190,14 @@ const getStatusSummary = async (req, res, next) => {
       attributes: [
         'status',
         [Sequelize.fn('COUNT', Sequelize.col('device_id')), 'count'],
-        [Sequelize.fn('AVG', Sequelize.col('latency_ms')), 'avg_latency']
+        [Sequelize.fn('AVG', Sequelize.literal('NULLIF(latency_ms, 0)')), 'avg_latency']
       ],
+      include: [{
+        model: NetworkDevices,
+        as: 'device',
+        attributes: [],
+        required: true
+      }],
       group: ['status'],
       raw: true
     });
@@ -184,13 +216,13 @@ const getStatusSummary = async (req, res, next) => {
       const count = parseInt(s.count);
       summary.total += count;
       if (s.status === 'up') {
-        summary.online = count;
+        summary.online += count;
         if (s.avg_latency) {
           totalLatency += parseFloat(s.avg_latency) * count;
           latencyCount += count;
         }
       } else {
-        summary.offline = count;
+        summary.offline += count;
       }
     });
 
@@ -223,10 +255,21 @@ const checkDeviceStatus = async (req, res, next) => {
     }
 
     // Perform live ping (3 packets for reliability)
-    const result = await ping.promise.probe(device.gateway, {
+    let result = await ping.promise.probe(device.gateway, {
       timeout: 5,
       extra: ['-n', '3']
     });
+
+    // Fallback to FortiGate WAN IP if gateway is down
+    if (!result.alive && device.wan_ip_fgt) {
+      const fallbackResult = await ping.promise.probe(device.wan_ip_fgt, {
+        timeout: 5,
+        extra: ['-n', '3']
+      });
+      if (fallbackResult.alive) {
+        result = fallbackResult;
+      }
+    }
 
     const newStatus = result.alive ? 'up' : 'down';
 
@@ -279,7 +322,8 @@ const getAvailabilitySnapshots = async (req, res, next) => {
       include: [{
         model: NetworkDevices,
         as: 'device',
-        attributes: ['pea_name', 'gateway']
+        attributes: ['pea_name', 'gateway'],
+        required: true
       }]
     });
 
@@ -308,7 +352,8 @@ const getDeviceAvailabilitySnapshots = async (req, res, next) => {
       include: [{
         model: NetworkDevices,
         as: 'device',
-        attributes: ['pea_name', 'gateway']
+        attributes: ['pea_name', 'gateway'],
+        required: true
       }]
     });
 

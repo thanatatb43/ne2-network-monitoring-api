@@ -10,6 +10,7 @@ const clientRoutes = require('./clientRoutes');
 const authRoutes = require('./authRoutes');
 const diagnosticRoutes = require('./diagnosticRoutes');
 const statsRoutes = require('./statsRoutes');
+const webhookRoutes = require('./webhookRoutes');
 
 router.use('/devices', networkDeviceRoutes);
 router.use('/latency', latencyRoutes);
@@ -17,5 +18,6 @@ router.use('/clients', clientRoutes);
 router.use('/auth', authRoutes);
 router.use('/test', diagnosticRoutes);
 router.use('/stats', statsRoutes);
+router.use('/webhooks', webhookRoutes);
 
 module.exports = router;

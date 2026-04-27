@@ -87,6 +87,12 @@ const runDailyAvailabilitySnapshot = async (targetDate = null) => {
         [Sequelize.fn('AVG', Sequelize.col('packet_loss')), 'packet_loss'],
         [Sequelize.fn('AVG', Sequelize.col('avg_latency_ms')), 'avg_latency_ms']
       ],
+      include: [{
+        model: NetworkDevices,
+        as: 'device',
+        attributes: [],
+        required: true
+      }],
       where: {
         hour: {
           [Op.between]: [startTime, endTime]
