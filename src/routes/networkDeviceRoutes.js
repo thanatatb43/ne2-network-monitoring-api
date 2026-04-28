@@ -13,6 +13,6 @@ router.post('/', verifyToken, hasRole(['super_admin', 'network_admin']), network
 router.put('/:id', verifyToken, hasRole(['super_admin', 'network_admin']), networkDeviceController.updateDevice);
 
 // Delete network device - restricted to super_admin and network_admin
-router.delete('/:id', verifyToken, hasRole(['super_admin', 'network_admin']), networkDeviceController.deleteDevice);
+router.delete('/:id', verifyToken, hasRole(['super_admin']), networkDeviceController.deleteDevice);
 
 module.exports = router;

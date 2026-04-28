@@ -17,7 +17,7 @@ router.post('/upload', diagnosticController.uploadTest);
 router.post('/report', optionalVerifyToken, diagnosticController.reportResults);
 
 // GET /api/test/history - View speed test logs (Admin/Manager/NetworkAdmin)
-router.get('/history', verifyToken, hasRole(['super_admin', 'manager', 'network_admin']), diagnosticController.getHistory);
+router.get('/history', verifyToken, hasRole(['super_admin', 'manager', 'network_admin', 'computer_admin', 'operator']), diagnosticController.getHistory);
 
 // GET /api/test/my-ip - Get client IP
 router.get('/my-ip', diagnosticController.getMyIp);

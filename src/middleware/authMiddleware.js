@@ -49,8 +49,8 @@ const hasRole = (roles) => {
       });
     }
 
-    // Manager role has read-only access to everything
-    if (req.user.role === 'manager' && req.method === 'GET') {
+    // Manager and Operator roles have read-only access to everything
+    if (['manager', 'operator'].includes(req.user.role) && req.method === 'GET') {
       return next();
     }
 
