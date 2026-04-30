@@ -7,6 +7,9 @@ const { verifyToken, optionalVerifyToken, hasRole } = require('../middleware/aut
 // GET /api/test/ping - Latency test
 router.get('/ping', diagnosticController.ping);
 
+// POST /api/test/ping-check - Check array of IPs
+router.post('/ping-check', diagnosticController.pingMultipleIps);
+
 // GET /api/test/download - Download speed test
 router.get('/download', diagnosticController.downloadTest);
 

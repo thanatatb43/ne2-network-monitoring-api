@@ -143,11 +143,67 @@ const getMyIp = async (req, res) => {
   });
 };
 
+const pingLib = require('ping');
+
+/**
+ * Ping multiple IPs and return their status
+ */
+const pingMultipleIps = async (req, res) => {
+  const { ips } = req.body;
+  
+  if (!ips || !Array.isArray(ips)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please provide an array of IP addresses in the "ips" field.'
+    });
+  }
+
+  try {
+    const promises = ips.map(async (ip) => {
+      try {
+        const result = await pingLib.promise.probe(ip, {
+          timeout: 2,
+          extra: ['-n', '2'] // 2 packets is enough for a quick check
+        });
+        
+        return {
+          ip: ip,
+          alive: result.alive,
+          latency: result.alive ? parseFloat(result.avg) : null,
+          packetLoss: result.alive ? (result.packetLoss ? parseFloat(result.packetLoss) : 0) : 100
+        };
+      } catch (err) {
+        return {
+          ip: ip,
+          alive: false,
+          latency: null,
+          packetLoss: 100,
+          error: err.message
+        };
+      }
+    });
+
+    const results = await Promise.all(promises);
+    
+    res.status(200).json({
+      success: true,
+      data: results
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to execute ping check.',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   ping,
   downloadTest,
   uploadTest,
   reportResults,
   getHistory,
-  getMyIp
+  getMyIp,
+  pingMultipleIps
 };

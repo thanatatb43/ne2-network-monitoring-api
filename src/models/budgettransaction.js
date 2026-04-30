@@ -30,11 +30,27 @@ module.exports = (sequelize, DataTypes) => {
     },
     document_date: {
       type: DataTypes.DATEONLY,
-      allowNull: true
+      allowNull: true,
+      get() {
+        const rawValue = this.getDataValue('document_date');
+        if (!rawValue) return null;
+        // Convert YYYY-MM-DD to DD.MM.YYYY
+        const parts = rawValue.split('-');
+        if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`;
+        return rawValue;
+      }
     },
     posting_date: {
       type: DataTypes.DATEONLY,
-      allowNull: true
+      allowNull: true,
+      get() {
+        const rawValue = this.getDataValue('posting_date');
+        if (!rawValue) return null;
+        // Convert YYYY-MM-DD to DD.MM.YYYY
+        const parts = rawValue.split('-');
+        if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`;
+        return rawValue;
+      }
     },
     reference_doc_no: {
       type: DataTypes.STRING,

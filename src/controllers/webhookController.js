@@ -48,11 +48,18 @@ const handleTeamsOutgoingWebhook = async (req, res, next) => {
 
     // 1. STATUS COMMAND
     if (command.includes('status')) {
+      const { NetworkDevices } = require('../models');
       const stats = await DeviceMetrics.findAll({
         attributes: [
           'status',
-          [Sequelize.fn('COUNT', Sequelize.col('device_id')), 'count']
+          [Sequelize.fn('COUNT', Sequelize.col('DeviceMetrics.device_id')), 'count']
         ],
+        include: [{
+          model: NetworkDevices,
+          as: 'device',
+          attributes: [],
+          required: true // INNER JOIN to only include devices that are NOT soft-deleted
+        }],
         group: ['status'],
         raw: true
       });

@@ -17,10 +17,35 @@ const parseDate = (dateStr) => {
   }
 
   if (typeof dateStr === 'string') {
-    const parts = dateStr.split('.');
-    if (parts.length === 3) {
-      // Assuming DD.MM.YYYY
-      return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    // Replace slashes or dashes with dots to normalize
+    const normalizedStr = dateStr.trim().replace(/[\/\-]/g, '.');
+    const parts = normalizedStr.split('.');
+    
+    if (parts.length >= 3) {
+      // Strip any time portion
+      let part0 = parts[0].split(' ')[0].trim();
+      let part1 = parts[1].trim();
+      let part2 = parts[2].split(' ')[0].trim();
+
+      // Ensure parts 0 and 1 are 2 digits
+      part0 = part0.padStart(2, '0');
+      part1 = part1.padStart(2, '0');
+
+      // Check if year is at the beginning
+      if (part0.length === 4) {
+        return `${part0}-${part1}-${part2.padStart(2, '0')}`;
+      }
+      
+      // If year is at the end (length 4 or 2)
+      if (part2.length === 4) {
+        return `${part2}-${part1}-${part0}`;
+      }
+
+      // If it's a 2-digit year at the end (e.g. 1/12/26)
+      if (part2.length === 2) {
+        const fullYear = parseInt(part2) > 50 ? `19${part2}` : `20${part2}`;
+        return `${fullYear}-${part1}-${part0}`;
+      }
     }
   }
   return null;
@@ -55,8 +80,8 @@ const uploadTransactions = async (req, res, next) => {
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
 
-    // Convert sheet to JSON
-    const rawData = xlsx.utils.sheet_to_json(worksheet, { defval: null });
+    // Convert sheet to JSON using raw: false to ensure dates are parsed as formatted strings
+    const rawData = xlsx.utils.sheet_to_json(worksheet, { defval: null, raw: false, dateNF: 'DD.MM.YYYY' });
 
     if (rawData.length === 0) {
       if (req.file) fs.unlinkSync(req.file.path);
@@ -310,9 +335,39 @@ const findTransactions = async (req, res, next) => {
   }
 };
 
+/**
+ * Get grouped usernames based on first 5 characters
+ */
+const getUsernameGroups = async (req, res, next) => {
+  try {
+    const { Sequelize, Op } = require('sequelize');
+    const groups = await BudgetTransaction.findAll({
+      attributes: [
+        [Sequelize.fn('LEFT', Sequelize.col('username'), 5), 'username_prefix'],
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'count']
+      ],
+      where: {
+        username: { [Op.ne]: null }
+      },
+      group: [Sequelize.fn('LEFT', Sequelize.col('username'), 5)],
+      order: [[Sequelize.fn('LEFT', Sequelize.col('username'), 5), 'ASC']],
+      raw: true
+    });
+
+    res.status(200).json({
+      success: true,
+      data: groups
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   uploadTransactions,
   getAllTransactions,
   getTransactionSelectors,
-  findTransactions
+  findTransactions,
+  getUsernameGroups
 };
+

@@ -9,6 +9,7 @@ router.get('/summary/:year', budgetController.getBudgetSummary);
 router.get('/selectors', budgetController.getBudgetSelectors);
 router.get('/transactions/selectors', budgetTransactionController.getTransactionSelectors);
 router.post('/transactions/find', budgetTransactionController.findTransactions);
+router.get('/transactions/username-groups', budgetTransactionController.getUsernameGroups);
 
 // Apply verifyToken to other budget routes
 router.use(verifyToken);
