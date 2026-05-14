@@ -60,67 +60,101 @@ const runHourlyAggregation = async () => {
 };
 
 /**
-
  * Creates a daily summary of uptime for all devices.
- * Runs once per day (usually at 3:00 AM) and looks at the previous day's hourly data.
+ * Runs once per day (usually at 3:05 AM) and looks at the previous day's hourly data.
+ * Improved to be self-healing: if run without targetDate, it checks for missing snapshots in the last 7 days.
  */
 const runDailyAvailabilitySnapshot = async (targetDate = null) => {
-  const yesterday = targetDate ? new Date(targetDate) : new Date();
-  if (!targetDate) yesterday.setDate(yesterday.getDate() - 1);
-  
-  // Use local components for the date string to avoid UTC shifting issues
-  const year = yesterday.getFullYear();
-  const month = String(yesterday.getMonth() + 1).padStart(2, '0');
-  const day = String(yesterday.getDate()).padStart(2, '0');
-  const dateString = `${year}-${month}-${day}`;
+  const datesToProcess = [];
 
-  const startTime = new Date(year, yesterday.getMonth(), yesterday.getDate(), 0, 0, 0);
-  const endTime = new Date(year, yesterday.getMonth(), yesterday.getDate(), 23, 59, 59, 999);
+  if (targetDate) {
+    datesToProcess.push(targetDate);
+  } else {
+    // Self-healing: check last 7 days
+    const today = new Date();
+    const { NetworkDevices } = require('../models');
+    const deviceCount = await NetworkDevices.count();
+    
+    console.log(`[SnapshotJob] Self-healing check: Expected ${deviceCount} devices per day.`);
 
-
-  console.log(`[SnapshotJob] Creating daily snapshot for ${dateString}...`);
-
-  try {
-    const aggregates = await LatencyHourly.findAll({
-      attributes: [
-        'device_id',
-        [Sequelize.fn('AVG', Sequelize.col('packet_loss')), 'packet_loss'],
-        [Sequelize.fn('AVG', Sequelize.col('avg_latency_ms')), 'avg_latency_ms']
-      ],
-      include: [{
-        model: NetworkDevices,
-        as: 'device',
-        attributes: [],
-        required: true
-      }],
-      where: {
-        hour: {
-          [Op.between]: [startTime, endTime]
-        }
-      },
-      group: ['device_id'],
-      raw: true
-    });
-
-    if (aggregates.length === 0) {
-      console.log(`[SnapshotJob] No hourly data found for ${dateString}.`);
-      return;
+    for (let i = 1; i <= 7; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      
+      // Check if we have enough snapshots for this date
+      const count = await DailyAvailabilitySnapshot.count({ where: { date: ds } });
+      if (count < deviceCount) {
+        console.log(`[SnapshotJob] Found missing/incomplete data for ${ds} (${count}/${deviceCount}). Adding to queue.`);
+        datesToProcess.push(ds);
+      }
     }
+    
+    // Always include yesterday to ensure it's refreshed with final data
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const ys = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+    if (!datesToProcess.includes(ys)) {
+      datesToProcess.push(ys);
+    }
+    
+    // Sort dates ascending so we process oldest first
+    datesToProcess.sort();
+  }
 
-    const snapshotRecords = aggregates.map(agg => ({
-      device_id: agg.device_id,
-      date: dateString,
-      uptime_pct: Math.max(0, 100 - (agg.packet_loss || 0)),
-      avg_latency_ms: agg.avg_latency_ms || 0
-    }));
+  for (const dateString of datesToProcess) {
+    const parts = dateString.split('-');
+    const year = parseInt(parts[0]);
+    const month = parseInt(parts[1]) - 1;
+    const day = parseInt(parts[2]);
 
-    await DailyAvailabilitySnapshot.bulkCreate(snapshotRecords, {
-      updateOnDuplicate: ['uptime_pct', 'avg_latency_ms']
-    });
+    const startTime = new Date(year, month, day, 0, 0, 0);
+    const endTime = new Date(year, month, day, 23, 59, 59, 999);
 
-    console.log(`[SnapshotJob] Successfully saved ${snapshotRecords.length} snapshots for ${dateString}.`);
-  } catch (error) {
-    console.error(`[SnapshotJob] Failed for ${dateString}:`, error);
+    console.log(`[SnapshotJob] Processing daily snapshot for ${dateString}...`);
+
+    try {
+      const aggregates = await LatencyHourly.findAll({
+        attributes: [
+          'device_id',
+          [Sequelize.fn('AVG', Sequelize.col('packet_loss')), 'packet_loss'],
+          [Sequelize.fn('AVG', Sequelize.col('avg_latency_ms')), 'avg_latency_ms']
+        ],
+        include: [{
+          model: NetworkDevices,
+          as: 'device',
+          attributes: [],
+          required: true
+        }],
+        where: {
+          hour: {
+            [Op.between]: [startTime, endTime]
+          }
+        },
+        group: ['device_id'],
+        raw: true
+      });
+
+      if (aggregates.length === 0) {
+        console.log(`[SnapshotJob] No hourly data found for ${dateString}. Skipping.`);
+        continue;
+      }
+
+      const snapshotRecords = aggregates.map(agg => ({
+        device_id: agg.device_id,
+        date: dateString,
+        uptime_pct: Math.max(0, 100 - (agg.packet_loss || 0)),
+        avg_latency_ms: agg.avg_latency_ms || 0
+      }));
+
+      await DailyAvailabilitySnapshot.bulkCreate(snapshotRecords, {
+        updateOnDuplicate: ['uptime_pct', 'avg_latency_ms']
+      });
+
+      console.log(`[SnapshotJob] Successfully saved ${snapshotRecords.length} snapshots for ${dateString}.`);
+    } catch (error) {
+      console.error(`[SnapshotJob] Failed for ${dateString}:`, error);
+    }
   }
 };
 

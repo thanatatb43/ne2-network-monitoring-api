@@ -1,4 +1,4 @@
-const { NetworkDevices, DeviceAuditLog } = require('../models');
+const { NetworkDevices, DeviceAuditLog, DeviceDowntime } = require('../models');
 
 /**
  * Helper to log device actions for auditing
@@ -278,10 +278,50 @@ const deleteDevice = async (req, res, next) => {
   }
 };
 
+/**
+ * Helper to format milliseconds to Day:Hour:Minute:Second
+ */
+const formatDuration = (ms) => {
+  if (!ms) return '0:0:0:0';
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  return `${days}:${hours % 24}:${minutes % 60}:${seconds % 60}`;
+};
+
+/**
+ * Get downtime history for a specific device
+ */
+const getDeviceDowntimeHistory = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const history = await DeviceDowntime.findAll({
+      where: { device_id: id },
+      order: [['down_at', 'DESC']]
+    });
+
+    const formattedHistory = history.map(record => {
+      const data = record.toJSON();
+      data.duration_formatted = formatDuration(data.duration_ms);
+      return data;
+    });
+
+    res.status(200).json({
+      success: true,
+      data: formattedHistory
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllDevices,
   getDeviceById,
   createDevice,
   updateDevice,
-  deleteDevice
+  deleteDevice,
+  getDeviceDowntimeHistory
 };

@@ -19,6 +19,10 @@ app.listen(port, () => {
   // This replaces the old cron-based ping job
   startContinuousPingLoop();
 
+  // Catch up on missing snapshots on startup
+  console.log('[Server] Checking for missing snapshots on startup...');
+  runDailyAvailabilitySnapshot().catch(err => console.error('[Server] Startup snapshot catch-up failed:', err));
+
   // Schedule hourly tasks (Aggregation + Dashboard Update)
   cron.schedule('0 * * * *', async () => {
     console.log(`[Cron] Starting Hourly Aggregation at ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' })}`);

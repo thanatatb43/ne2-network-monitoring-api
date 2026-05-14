@@ -5,6 +5,7 @@ const { verifyToken, hasRole } = require('../middleware/authMiddleware');
 
 router.get('/', networkDeviceController.getAllDevices);
 router.get('/:id', networkDeviceController.getDeviceById);
+router.get('/:id/downtime', networkDeviceController.getDeviceDowntimeHistory);
 
 // Create network device - restricted to super_admin and network_admin
 router.post('/', verifyToken, hasRole(['super_admin', 'network_admin']), networkDeviceController.createDevice);
