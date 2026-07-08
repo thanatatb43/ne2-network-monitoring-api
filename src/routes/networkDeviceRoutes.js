@@ -4,6 +4,9 @@ const networkDeviceController = require('../controllers/networkDeviceController'
 const { verifyToken, hasRole } = require('../middleware/authMiddleware');
 
 router.get('/', networkDeviceController.getAllDevices);
+router.get('/downtime/summary', networkDeviceController.getDowntimeSummary);
+router.get('/downtime/devices', networkDeviceController.getDevicesDowntimeSummary);
+router.get('/downtime/all', networkDeviceController.getAllDowntimeRecords);
 router.get('/:id', networkDeviceController.getDeviceById);
 router.get('/:id/downtime', networkDeviceController.getDeviceDowntimeHistory);
 

@@ -1,4 +1,6 @@
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { DeviceMetrics, Sequelize } = require('../models');
 
 /**
@@ -6,7 +8,13 @@ const { DeviceMetrics, Sequelize } = require('../models');
  */
 const cleanText = (text) => {
   if (!text) return '';
-  return text.replace(/<[^>]*>/g, '').trim().toLowerCase();
+  // Remove Teams mention tags and their inner content (e.g., <at>Network Status Bot</at>)
+  let cleaned = text.replace(/<at>.*?<\/at>/gi, '');
+  // Remove remaining HTML tags
+  cleaned = cleaned.replace(/<[^>]*>/g, '');
+  // Replace common HTML entities
+  cleaned = cleaned.replace(/&nbsp;/gi, ' ');
+  return cleaned.trim().toLowerCase();
 };
 
 /**
@@ -16,6 +24,40 @@ const handleTeamsOutgoingWebhook = async (req, res, next) => {
   try {
     const teamsToken = process.env.TEAMS_OUTGOING_WEBHOOK_TOKEN;
 
+    // Log diagnostic information to webhook_debug.log
+    try {
+      const logData = {
+        timestamp: new Date().toISOString(),
+        headers: req.headers,
+        body: req.body,
+        rawBodyLength: req.rawBody ? req.rawBody.length : null,
+        rawBodyString: req.rawBody ? req.rawBody.toString('utf8') : null,
+        teamsTokenConfigured: !!teamsToken,
+        teamsTokenLength: teamsToken ? teamsToken.trim().length : 0,
+      };
+
+      if (teamsToken) {
+        const authHeader = req.headers.authorization;
+        const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body));
+        const expectedHmac = crypto
+          .createHmac('sha256', Buffer.from(teamsToken.trim(), 'base64'))
+          .update(rawBody)
+          .digest('base64');
+        const receivedHmac = authHeader ? authHeader.replace('HMAC ', '').trim() : null;
+
+        logData.expectedHmac = expectedHmac;
+        logData.receivedHmac = receivedHmac;
+        logData.hmacMatch = expectedHmac === receivedHmac;
+      }
+
+      fs.appendFileSync(
+        path.join(__dirname, '../../webhook_debug.log'),
+        JSON.stringify(logData, null, 2) + '\n---\n'
+      );
+    } catch (logErr) {
+      console.error('Failed to write to webhook_debug.log:', logErr.message);
+    }
+
     // Optional: HMAC Verification if token is provided
     if (teamsToken) {
       const authHeader = req.headers.authorization;
@@ -23,20 +65,18 @@ const handleTeamsOutgoingWebhook = async (req, res, next) => {
         return res.status(401).json({ message: 'No authorization header' });
       }
 
-      // Note: In production, some versions of Teams might include extra spaces 
-      // in the body string. For simplicity, we use the raw JSON body.
+      // Use the raw body buffer for accurate signature validation, falling back to stringified body if absent
+      const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body));
       const expectedHmac = crypto
-        .createHmac('sha256', Buffer.from(teamsToken, 'base64'))
-        .update(JSON.stringify(req.body))
+        .createHmac('sha256', Buffer.from(teamsToken.trim(), 'base64'))
+        .update(rawBody)
         .digest('base64');
 
-      const receivedHmac = authHeader.replace('HMAC ', '');
+      const receivedHmac = authHeader.replace('HMAC ', '').trim();
 
       if (expectedHmac !== receivedHmac) {
-        console.log('[Webhook] HMAC Verification Failed');
-        // We log it but continue for now if it's a dev environment, 
-        // or return 401 if you want strict security.
-        // return res.status(401).json({ message: 'Invalid HMAC' });
+        console.warn(`[Webhook] HMAC Verification Failed. Expected: "${expectedHmac}", Received: "${receivedHmac}"`);
+        return res.status(401).json({ message: 'Invalid HMAC signature' });
       }
     }
 

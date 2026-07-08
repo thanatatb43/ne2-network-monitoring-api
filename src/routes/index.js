@@ -12,6 +12,7 @@ const diagnosticRoutes = require('./diagnosticRoutes');
 const statsRoutes = require('./statsRoutes');
 const webhookRoutes = require('./webhookRoutes');
 const budgetRoutes = require('./budgetRoutes');
+const peaJobRoutes = require('./peaJobRoutes');
 
 router.use('/devices', networkDeviceRoutes);
 router.use('/latency', latencyRoutes);
@@ -21,5 +22,6 @@ router.use('/test', diagnosticRoutes);
 router.use('/stats', statsRoutes);
 router.use('/webhooks', webhookRoutes);
 router.use('/budgets', budgetRoutes);
+router.use('/pea-jobs', peaJobRoutes);
 
 module.exports = router;

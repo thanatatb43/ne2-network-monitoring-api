@@ -27,6 +27,7 @@ app.listen(port, () => {
   cron.schedule('0 * * * *', async () => {
     console.log(`[Cron] Starting Hourly Aggregation at ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' })}`);
     await runHourlyAggregation();
+    await runDailyAvailabilitySnapshot(); // Self-healing check for missed daily snapshots
     await updateDevicesAvailabilityDashboard();
     console.log(`[Cron] Hourly Aggregation Complete`);
   }, { timezone: 'Asia/Bangkok' });

@@ -90,13 +90,8 @@ const runDailyAvailabilitySnapshot = async (targetDate = null) => {
       }
     }
     
-    // Always include yesterday to ensure it's refreshed with final data
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const ys = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
-    if (!datesToProcess.includes(ys)) {
-      datesToProcess.push(ys);
-    }
+    // Always include yesterday IF it hasn't been processed yet (handled by the loop above)
+    // Removed unconditional push to allow this function to run hourly without redundant processing.
     
     // Sort dates ascending so we process oldest first
     datesToProcess.sort();

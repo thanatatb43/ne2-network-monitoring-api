@@ -15,6 +15,14 @@ const startContinuousPingLoop = async () => {
 
   while (true) {
     try {
+      // Pause pinging between 12:00 AM and 5:00 AM
+      const currentHour = new Date().getHours();
+      if (currentHour >= 0 && currentHour < 5) {
+        console.log(`[PingLoop] Paused between 12:00 AM and 5:00 AM (Current hour: ${currentHour}). Waiting 15 minutes...`);
+        await new Promise(resolve => setTimeout(resolve, 15 * 60 * 1000));
+        continue;
+      }
+
       const devices = await NetworkDevices.findAll();
       const offsetHours = process.env.DB_TIMEZONE_OFFSET !== undefined ? parseInt(process.env.DB_TIMEZONE_OFFSET) : 0;
       

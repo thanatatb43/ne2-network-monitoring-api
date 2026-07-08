@@ -317,11 +317,125 @@ const getDeviceDowntimeHistory = async (req, res, next) => {
   }
 };
 
+/**
+ * Get global summary of downtime (totals)
+ */
+const getDowntimeSummary = async (req, res, next) => {
+  try {
+    const { Sequelize } = require('../models');
+    
+    const stats = await DeviceDowntime.findOne({
+      attributes: [
+        [Sequelize.fn('SUM', Sequelize.col('duration_ms')), 'total_downtime_ms'],
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'total_incidents']
+      ],
+      raw: true
+    });
+
+    const currentlyOfflineCount = await DeviceDowntime.count({
+      where: { 
+        status: 'down',
+        up_at: null
+      }
+    });
+
+    const totalDowntimeMs = parseInt(stats.total_downtime_ms || 0);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        total_incidents: parseInt(stats.total_incidents || 0),
+        total_downtime_ms: totalDowntimeMs,
+        total_downtime_formatted: formatDuration(totalDowntimeMs),
+        currently_offline_count: currentlyOfflineCount
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get per-device summary of downtime
+ */
+const getDevicesDowntimeSummary = async (req, res, next) => {
+  try {
+    const { Sequelize } = require('../models');
+    
+    const summary = await DeviceDowntime.findAll({
+      attributes: [
+        'device_id',
+        [Sequelize.fn('SUM', Sequelize.col('duration_ms')), 'total_duration_ms'],
+        [Sequelize.fn('COUNT', Sequelize.col('DeviceDowntime.id')), 'incident_count']
+      ],
+      group: ['device_id'],
+      include: [{
+        model: NetworkDevices,
+        as: 'device',
+        attributes: ['pea_name', 'province']
+      }],
+      raw: true,
+      nest: true
+    });
+
+    const formattedSummary = summary.map(item => ({
+      device_id: item.device_id,
+      pea_name: item.device.pea_name,
+      province: item.device.province,
+      total_duration_ms: item.total_duration_ms || 0,
+      total_duration_formatted: formatDuration(item.total_duration_ms),
+      incident_count: item.incident_count
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formattedSummary
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get all individual downtime records for all devices
+ */
+const getAllDowntimeRecords = async (req, res, next) => {
+  try {
+    const records = await DeviceDowntime.findAll({
+      include: [{
+        model: NetworkDevices,
+        as: 'device',
+        attributes: ['pea_name', 'province']
+      }],
+      order: [['down_at', 'DESC']]
+    });
+
+    const formattedRecords = records.map(record => {
+      const data = record.toJSON();
+      data.pea_name = data.device ? data.device.pea_name : 'Unknown';
+      data.province = data.device ? data.device.province : 'Unknown';
+      data.duration_formatted = formatDuration(data.duration_ms);
+      delete data.device;
+      return data;
+    });
+
+    res.status(200).json({
+      success: true,
+      data: formattedRecords
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllDevices,
   getDeviceById,
   createDevice,
   updateDevice,
   deleteDevice,
-  getDeviceDowntimeHistory
+  getDeviceDowntimeHistory,
+  getDowntimeSummary,
+  getDevicesDowntimeSummary,
+  getAllDowntimeRecords
 };
