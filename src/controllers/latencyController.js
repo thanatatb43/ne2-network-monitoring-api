@@ -238,6 +238,36 @@ const getStatusSummary = async (req, res, next) => {
 };
 
 /**
+ * Get all devices currently in 'down' status (based on latest DeviceMetrics)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+const getDownDevices = async (req, res, next) => {
+  try {
+    const downDevices = await DeviceMetrics.findAll({
+      where: { status: 'down' },
+      include: [
+        {
+          model: NetworkDevices,
+          as: 'device',
+          attributes: ['pea_name', 'pea_type', 'province', 'gateway'],
+          required: true
+        }
+      ],
+      order: [['checked_at', 'DESC']]
+    });
+
+    res.status(200).json({
+      success: true,
+      count: downDevices.length,
+      data: downDevices
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Perform a live on-demand ping check for a device
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -373,6 +403,7 @@ module.exports = {
   getDeviceMetrics,
   getDeviceAvailability,
   getStatusSummary,
+  getDownDevices,
   checkDeviceStatus,
   getAvailabilitySnapshots,
   getDeviceAvailabilitySnapshots

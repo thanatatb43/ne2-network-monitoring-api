@@ -7,6 +7,7 @@ router.get('/recent', latencyController.getRecentLatency);
 router.get('/summary', latencyController.getRecentLatencySummary);
 router.get('/metrics', latencyController.getDeviceMetrics);
 router.get('/status-summary', latencyController.getStatusSummary);
+router.get('/down', latencyController.getDownDevices);
 router.get('/check/:id', latencyController.checkDeviceStatus);
 router.get('/availability/:id', latencyController.getDeviceAvailability);
 router.get('/availability-snapshots', latencyController.getAvailabilitySnapshots);

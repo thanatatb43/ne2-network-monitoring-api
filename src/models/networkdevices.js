@@ -8,6 +8,17 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'device_id',
         as: 'metrics'
       });
+      NetworkDevices.belongsTo(models.PeaSite, {
+        foreignKey: 'pea_site_id',
+        as: 'pea_site'
+      });
+
+      if (models.PeaSite) {
+        models.PeaSite.hasOne(NetworkDevices, {
+          foreignKey: 'pea_site_id',
+          as: 'network_device'
+        });
+      }
     }
   }
 
@@ -74,6 +85,10 @@ module.exports = (sequelize, DataTypes) => {
     gateway_backup: {
       type: DataTypes.STRING,
       validate: { isIP: 4 }
+    },
+    pea_site_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
     }
   }, {
     sequelize,

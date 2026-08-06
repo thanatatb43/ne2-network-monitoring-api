@@ -1,6 +1,91 @@
-const { BudgetTransaction } = require('../models');
+const { BudgetTransaction, Budget } = require('../models');
 const xlsx = require('xlsx');
 const fs = require('fs');
+
+/**
+ * Sync the Budgets table after a transactions upload.
+ * Creates a new snapshot row for (account_code = cost_center, year) representing
+ * the cumulative (YTD) budget_used as of the latest month found in the uploaded data.
+ * If a row for that same month already exists, appends a revision suffix (.1, .2, ...)
+ * instead of overwriting it, so every upload keeps a history.
+ */
+const syncBudgetFromTransactions = async (cost_center, year) => {
+  const allTx = await BudgetTransaction.findAll({
+    where: { cost_center, year },
+    raw: true
+  });
+
+  if (allTx.length === 0) return null;
+
+  let totalUsed = 0;
+  let latestMonth = null;
+  let accountName = null;
+
+  allTx.forEach(tx => {
+    const val = parseFloat(tx.value_co_curr);
+    if (!isNaN(val)) totalUsed += val;
+
+    if (tx.posting_date) {
+      const month = parseInt(String(tx.posting_date).slice(5, 7), 10);
+      if (!isNaN(month) && (latestMonth === null || month > latestMonth)) {
+        latestMonth = month;
+      }
+    }
+
+    if (!accountName && tx.cost_center_name) {
+      accountName = tx.cost_center_name;
+    }
+  });
+
+  // Can't determine which month this snapshot represents without at least one posting_date
+  if (latestMonth === null) return null;
+
+  const account_code = cost_center;
+
+  // All existing Budget rows for this account_code + year (used for period suffixing and allocated carry-forward)
+  const existingForYear = await Budget.findAll({
+    where: { account_code, year },
+    order: [['period', 'DESC']]
+  });
+
+  const existingSameMonth = existingForYear.filter(b => Math.floor(parseFloat(b.period)) === latestMonth);
+
+  let period;
+  if (existingSameMonth.length === 0) {
+    period = latestMonth;
+  } else {
+    const maxSuffix = existingSameMonth.reduce((max, b) => {
+      const p = parseFloat(b.period);
+      const suffix = Math.round((p - Math.floor(p)) * 10);
+      return Math.max(max, suffix);
+    }, 0);
+    period = parseFloat((latestMonth + (maxSuffix + 1) / 10).toFixed(1));
+  }
+
+  // budget_allocated: carry forward from the latest existing record in the same year, default 0
+  const budget_allocated = existingForYear.length > 0 ? existingForYear[0].budget_allocated : 0;
+
+  // cost_center_group: no source in the upload payload, carry forward from the most recent
+  // Budget row with the same account_code (any year); fallback to "ไม่ระบุ" if this account_code is brand new
+  const priorAnyYear = await Budget.findOne({
+    where: { account_code },
+    order: [['year', 'DESC'], ['period', 'DESC']]
+  });
+  const cost_center_group = priorAnyYear ? priorAnyYear.cost_center_group : 'ไม่ระบุ';
+  const account_name = accountName || 'ไม่ระบุ';
+
+  return Budget.create({
+    cost_center_group,
+    account_code,
+    account_name,
+    budget_allocated,
+    budget_used: parseFloat(totalUsed.toFixed(2)),
+    period,
+    year: parseInt(year),
+    month: latestMonth,
+    day: 0
+  });
+};
 
 /**
  * Helper to parse dates from "DD.MM.YYYY" to standard JS Date/String
@@ -205,6 +290,15 @@ const uploadTransactions = async (req, res, next) => {
     // Clean up uploaded file
     fs.unlinkSync(filePath);
 
+    // Sync the Budgets table with a new cumulative snapshot from the just-uploaded data.
+    // Non-blocking: a sync failure should not fail the transactions upload itself.
+    let budgetSnapshot = null;
+    try {
+      budgetSnapshot = await syncBudgetFromTransactions(cost_center, year);
+    } catch (syncError) {
+      console.error('[uploadTransactions] Failed to sync Budgets table:', syncError);
+    }
+
     res.status(200).json({
       success: true,
       message: `Upload complete. Total rows: ${transactionsToInsert.length} (New: ${newCount}, Updated/Maintained: ${updatedCount}). Destroyed ${destroyedCount} old rows.`,
@@ -212,7 +306,8 @@ const uploadTransactions = async (req, res, next) => {
       new_rows: newCount,
       updated_rows_count: updatedCount,
       changed_values: updatedRows, // Shows specifically which rows had a change in their monetary value
-      data: transactionsToInsert
+      data: transactionsToInsert,
+      budget_snapshot: budgetSnapshot
     });
   } catch (error) {
     // Attempt to clean up file on error
@@ -278,6 +373,55 @@ const getAllTransactions = async (req, res, next) => {
 };
 
 /**
+ * Group transactions by month (posting_date) and split into spent (value_co_curr > 0)
+ * vs not_spent (value_co_curr < 0, e.g. reversals/refunds).
+ */
+const buildTransactionSummary = (transactions) => {
+  const byMonthMap = new Map();
+  let grandSpent = 0;
+  let grandNotSpent = 0;
+
+  transactions.forEach(tx => {
+    const rawDate = tx.getDataValue('posting_date');
+    const month = rawDate ? rawDate.slice(0, 7) : 'unknown'; // YYYY-MM
+    const value = parseFloat(tx.getDataValue('value_co_curr'));
+
+    if (!byMonthMap.has(month)) {
+      byMonthMap.set(month, { month, spent: 0, not_spent: 0 });
+    }
+    const entry = byMonthMap.get(month);
+
+    if (!isNaN(value)) {
+      if (value > 0) {
+        entry.spent += value;
+        grandSpent += value;
+      } else if (value < 0) {
+        entry.not_spent += Math.abs(value);
+        grandNotSpent += Math.abs(value);
+      }
+    }
+  });
+
+  const by_month = Array.from(byMonthMap.values())
+    .map(entry => ({
+      month: entry.month,
+      spent: parseFloat(entry.spent.toFixed(2)),
+      not_spent: parseFloat(entry.not_spent.toFixed(2)),
+      total: parseFloat((entry.spent - entry.not_spent).toFixed(2))
+    }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  return {
+    by_month,
+    grand_total: {
+      spent: parseFloat(grandSpent.toFixed(2)),
+      not_spent: parseFloat(grandNotSpent.toFixed(2)),
+      total: parseFloat((grandSpent - grandNotSpent).toFixed(2))
+    }
+  };
+};
+
+/**
  * Find transactions by filters
  */
 const findTransactions = async (req, res, next) => {
@@ -325,10 +469,13 @@ const findTransactions = async (req, res, next) => {
       order: [['posting_date', 'DESC'], ['createdAt', 'DESC']]
     });
 
+    const summary = buildTransactionSummary(transactions);
+
     res.status(200).json({
       success: true,
       count: transactions.length,
-      data: transactions
+      data: transactions,
+      summary
     });
   } catch (error) {
     next(error);

@@ -1,4 +1,4 @@
-const { Budget } = require('../models');
+const { Budget, BudgetTransaction } = require('../models');
 
 /**
  * Get all budget records
@@ -7,10 +7,9 @@ const getAllBudgets = async (req, res, next) => {
   try {
     const budgets = await Budget.findAll({
       order: [
-        ['account_code', 'ASC'],
         ['year', 'DESC'],
-        ['period', 'DESC'],
-        ['day', 'DESC']
+        ['month', 'DESC'],
+        ['period', 'DESC']
       ]
     });
     res.status(200).json({
@@ -37,9 +36,40 @@ const getBudgetSummary = async (req, res, next) => {
         ['account_code', 'ASC'],
         ['year', 'DESC'],
         ['period', 'DESC'],
-        ['day', 'DESC'],
-        ['month', 'DESC']
+        ['month', 'DESC'],
+        ['day', 'DESC']
       ]
+    });
+
+    // Spending grouped by username prefix (first 5 chars) per account_code (== cost_center), for this year.
+    // Mirrors /api/budgets/transactions/username-groups, but summed by value_co_curr instead of counted,
+    // and scoped per account_code so it can be attached to each summary row.
+    const { Sequelize, Op } = require('sequelize');
+    const usernameGroupRows = await BudgetTransaction.findAll({
+      attributes: [
+        'cost_center',
+        [Sequelize.fn('LEFT', Sequelize.col('username'), 5), 'username_prefix'],
+        [Sequelize.fn('SUM', Sequelize.col('value_co_curr')), 'total_spent']
+      ],
+      where: {
+        year,
+        username: { [Op.ne]: null }
+      },
+      group: ['cost_center', Sequelize.fn('LEFT', Sequelize.col('username'), 5)],
+      raw: true
+    });
+
+    const usernameGroupsByAccount = {};
+    usernameGroupRows.forEach(row => {
+      if (!row.cost_center) return;
+      if (!usernameGroupsByAccount[row.cost_center]) usernameGroupsByAccount[row.cost_center] = [];
+      usernameGroupsByAccount[row.cost_center].push({
+        username_prefix: row.username_prefix,
+        total_spent: parseFloat(parseFloat(row.total_spent).toFixed(2))
+      });
+    });
+    Object.values(usernameGroupsByAccount).forEach(list => {
+      list.sort((a, b) => b.total_spent - a.total_spent);
     });
 
     const summaryMap = new Map();
@@ -61,7 +91,8 @@ const getBudgetSummary = async (req, res, next) => {
           budget_used: used,
           year: b.year,
           remaining_budget: parseFloat(remaining.toFixed(2)),
-          usage_percentage: parseFloat(percentage.toFixed(2))
+          usage_percentage: parseFloat(percentage.toFixed(2)),
+          username_groups: usernameGroupsByAccount[b.account_code] || []
         });
 
         // Add to grand totals

@@ -1,4 +1,4 @@
-const { NetworkDevices, DeviceAuditLog, DeviceDowntime } = require('../models');
+const { NetworkDevices, DeviceAuditLog, DeviceDowntime, PeaSite, OfficeEquipment } = require('../models');
 
 /**
  * Helper to log device actions for auditing
@@ -43,7 +43,17 @@ const getAllDevices = async (req, res, next) => {
 const getDeviceById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const device = await NetworkDevices.findByPk(id);
+    const device = await NetworkDevices.findByPk(id, {
+      include: [
+        {
+          model: PeaSite,
+          as: 'pea_site',
+          include: [
+            { model: OfficeEquipment, as: 'equipment' }
+          ]
+        }
+      ]
+    });
 
     if (!device) {
       return res.status(404).json({

@@ -319,7 +319,7 @@ const getPeaSitesLookup = async (req, res, next) => {
   try {
     const sites = await PeaSite.findAll({
       attributes: ['id', 'pea_name'],
-      order: [['pea_name', 'ASC']]
+      order: [['id', 'ASC']]
     });
 
     res.status(200).json({

@@ -36,7 +36,7 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: 0
     },
     period: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(5, 1),
       allowNull: true
     },
     year: {

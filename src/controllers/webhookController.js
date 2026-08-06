@@ -180,7 +180,49 @@ const handleTeamsOutgoingWebhook = async (req, res, next) => {
       }
     }
 
-    // 3. DEVICES COMMAND (List unique provinces/branches with device names)
+    // 3. IP COMMAND (Searching by name or location, show IP details)
+    else if (command.startsWith('ip ') || command === 'ip') {
+      const searchTerm = command.replace(/^ip\s*/, '').trim();
+
+      if (!searchTerm) {
+        responseText = 'กรุณาระบุชื่ออุปกรณ์หรือจังหวัดที่ต้องการตรวจสอบ IP เช่น **"ip อุบล"** หรือ **"ip คลังพัสดุอุบล"**';
+      } else {
+        const { NetworkDevices } = require('../models');
+        const { Op } = require('sequelize');
+
+        const devices = await NetworkDevices.findAll({
+          where: {
+            [Op.or]: [
+              { pea_name: { [Op.substring]: searchTerm } },
+              { province: { [Op.substring]: searchTerm } }
+            ]
+          },
+          attributes: ['pea_name', 'province', 'gateway', 'sub_ip1_gateway', 'sub_ip2_gateway', 'wan_gateway_mpls', 'wan_ip_fgt'],
+          limit: 10
+        });
+
+        if (devices.length === 0) {
+          responseText = `❌ ไม่พบข้อมูลสำหรับ: **"${searchTerm}"**`;
+        } else {
+          let listText = `🌐 **ข้อมูล IP ที่เกี่ยวข้องกับ "${searchTerm}"** (${devices.length} รายการ)\n\n`;
+          devices.forEach(d => {
+            listText += `📍 **${d.pea_name}** (${d.province || '-'})\n` +
+              `  • Gateway: ${d.gateway || '-'}\n` +
+              `  • Sub IP Gateway 1: ${d.sub_ip1_gateway || '-'}\n` +
+              `  • Sub IP Gateway 2: ${d.sub_ip2_gateway || '-'}\n` +
+              `  • WAN Gateway (MPLS): ${d.wan_gateway_mpls || '-'}\n` +
+              `  • WAN IP (FortiGate): ${d.wan_ip_fgt || '-'}\n\n`;
+          });
+
+          if (devices.length === 10) {
+            listText += `*แสดงผลสูงสุด 10 รายการ*`;
+          }
+          responseText = listText;
+        }
+      }
+    }
+
+    // 4. DEVICES COMMAND (List unique provinces/branches with device names)
     else if (command.includes('device')) {
       const { NetworkDevices } = require('../models');
       const allDevices = await NetworkDevices.findAll({
@@ -218,7 +260,7 @@ const handleTeamsOutgoingWebhook = async (req, res, next) => {
       }
     }
 
-    // 4. HELP COMMAND
+    // 5. HELP COMMAND
     else if (command.includes('help')) {
       responseText = `🤖 **คู่มือการใช้งาน Network Monitoring Bot**\n\n` +
         `คุณสามารถสั่งงานผมได้ด้วยคำสั่งดังนี้ครับ:\n\n` +
@@ -226,6 +268,7 @@ const handleTeamsOutgoingWebhook = async (req, res, next) => {
         `• **devices** : ดูรายชื่ออุปกรณ์/จังหวัด/สาขาที่มีในระบบ\n` +
         `• **check [ชื่ออุปกรณ์]** : ตรวจสอบสถานะของอุปกรณ์นั้นๆ เช่น *check ตึก 1 ชั้น 2*\n` +
         `• **check [ชื่อจังหวัด]** : ตรวจสอบสถานะอุปกรณ์ทั้งหมดในจังหวัดนั้น เช่น *check อุบล*\n` +
+        `• **ip [ชื่ออุปกรณ์/จังหวัด]** : ตรวจสอบ Gateway, Sub IP, WAN IP ของสถานที่นั้นๆ เช่น *ip อุบล*\n` +
         `• **help** : แสดงรายการคำสั่งที่ใช้งานได้ทั้งหมด\n\n` +
         `พิมพ์ชื่อผมแล้วตามด้วยคำสั่งได้เลยครับ!`;
     }
