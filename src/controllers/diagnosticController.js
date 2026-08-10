@@ -13,33 +13,56 @@ const ping = (req, res) => {
   });
 };
 
+// Allocated once at module load and reused for every request, instead of
+// re-allocating 100MB on every single download test call.
+const DOWNLOAD_TEST_SIZE = 100 * 1024 * 1024; // 100MB
+const DOWNLOAD_TEST_BUFFER = Buffer.alloc(DOWNLOAD_TEST_SIZE, '0');
+
 /**
  * Download test: returns dummy data to measure download speed
  */
 const downloadTest = (req, res) => {
-  const size = 100 * 1024 * 1024; // 100MB
-  const buffer = Buffer.alloc(size, '0');
-  
   res.writeHead(200, {
     'Content-Type': 'application/octet-stream',
-    'Content-Length': size,
+    'Content-Length': DOWNLOAD_TEST_SIZE,
     'Content-Disposition': 'attachment; filename="speedtest.bin"'
   });
-  res.end(buffer);
+  res.end(DOWNLOAD_TEST_BUFFER);
 };
 
 /**
- * Upload test: receives data and returns stats to measure upload speed
+ * Upload test: receives data and returns stats to measure upload speed.
+ * Must actually drain the incoming request stream before responding -
+ * otherwise the server replies before the body has fully arrived, which
+ * both under-times the transfer and can cut the connection short on
+ * slower links.
  */
-const uploadTest = (req, res) => {
+const uploadTest = (req, res, next) => {
   const startTime = Date.now();
-  const size = req.headers['content-length'] ? parseInt(req.headers['content-length']) : 0;
-  
-  res.status(200).json({
-    success: true,
-    bytes_received: size,
-    duration_ms: Date.now() - startTime
+
+  // A body-parser upstream (e.g. express.json) may have already consumed
+  // the stream if the request's Content-Type matched it - nothing left to drain.
+  if (req.readableEnded) {
+    const size = req.headers['content-length'] ? parseInt(req.headers['content-length']) : 0;
+    return res.status(200).json({
+      success: true,
+      bytes_received: size,
+      duration_ms: Date.now() - startTime
+    });
+  }
+
+  let bytesReceived = 0;
+  req.on('data', (chunk) => {
+    bytesReceived += chunk.length;
   });
+  req.on('end', () => {
+    res.status(200).json({
+      success: true,
+      bytes_received: bytesReceived,
+      duration_ms: Date.now() - startTime
+    });
+  });
+  req.on('error', next);
 };
 
 const dns = require('dns').promises;
