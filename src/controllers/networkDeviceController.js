@@ -407,6 +407,131 @@ const getDevicesDowntimeSummary = async (req, res, next) => {
 };
 
 /**
+ * Get downtime dashboard for the current year: devices that go down most often,
+ * plus yearly/monthly/daily incident breakdowns. Always scoped to whatever
+ * calendar year it is right now - no code change needed when the year rolls over.
+ */
+const getDowntimeDashboard = async (req, res, next) => {
+  try {
+    const { Sequelize } = require('../models');
+    const { Op } = require('sequelize');
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const yearStart = new Date(currentYear, 0, 1);
+    const yearEnd = new Date(currentYear + 1, 0, 1);
+    const yearWhere = { down_at: { [Op.gte]: yearStart, [Op.lt]: yearEnd } };
+
+    // 1. Devices that go down most often this year
+    const topDevicesRaw = await DeviceDowntime.findAll({
+      attributes: [
+        'device_id',
+        [Sequelize.fn('COUNT', Sequelize.col('DeviceDowntime.id')), 'incident_count'],
+        [Sequelize.fn('SUM', Sequelize.col('duration_ms')), 'total_duration_ms']
+      ],
+      where: yearWhere,
+      group: ['device_id'],
+      include: [{ model: NetworkDevices, as: 'device', attributes: ['pea_name', 'province'] }],
+      order: [[Sequelize.literal('incident_count'), 'DESC']],
+      limit: 10,
+      raw: true,
+      nest: true
+    });
+
+    const top_devices = topDevicesRaw.map(item => ({
+      device_id: item.device_id,
+      pea_name: item.device ? item.device.pea_name : 'Unknown',
+      province: item.device ? item.device.province : 'Unknown',
+      incident_count: parseInt(item.incident_count),
+      total_duration_ms: parseInt(item.total_duration_ms || 0),
+      total_duration_formatted: formatDuration(item.total_duration_ms)
+    }));
+
+    // 2. Yearly summary
+    const yearlyStats = await DeviceDowntime.findOne({
+      attributes: [
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'incident_count'],
+        [Sequelize.fn('SUM', Sequelize.col('duration_ms')), 'total_duration_ms']
+      ],
+      where: yearWhere,
+      raw: true
+    });
+
+    const yearly = {
+      year: currentYear,
+      incident_count: parseInt(yearlyStats.incident_count || 0),
+      total_duration_ms: parseInt(yearlyStats.total_duration_ms || 0),
+      total_duration_formatted: formatDuration(yearlyStats.total_duration_ms)
+    };
+
+    // 3. Monthly breakdown, zero-filled Jan-Dec
+    const monthlyRaw = await DeviceDowntime.findAll({
+      attributes: [
+        [Sequelize.fn('MONTH', Sequelize.col('down_at')), 'month'],
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'incident_count'],
+        [Sequelize.fn('SUM', Sequelize.col('duration_ms')), 'total_duration_ms']
+      ],
+      where: yearWhere,
+      group: [Sequelize.fn('MONTH', Sequelize.col('down_at'))],
+      raw: true
+    });
+
+    const monthlyMap = new Map(monthlyRaw.map(r => [parseInt(r.month), r]));
+    const monthly = [];
+    for (let m = 1; m <= 12; m++) {
+      const r = monthlyMap.get(m);
+      monthly.push({
+        month: m,
+        incident_count: r ? parseInt(r.incident_count) : 0,
+        total_duration_ms: r ? parseInt(r.total_duration_ms || 0) : 0
+      });
+    }
+
+    // 4. Daily breakdown, zero-filled from Jan 1 through today
+    const dailyRaw = await DeviceDowntime.findAll({
+      attributes: [
+        [Sequelize.fn('DATE', Sequelize.col('down_at')), 'date'],
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'incident_count'],
+        [Sequelize.fn('SUM', Sequelize.col('duration_ms')), 'total_duration_ms']
+      ],
+      where: yearWhere,
+      group: [Sequelize.fn('DATE', Sequelize.col('down_at'))],
+      raw: true
+    });
+
+    const toDateStr = (d) => {
+      const dt = d instanceof Date ? d : new Date(d);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    };
+
+    const dailyMap = new Map(dailyRaw.map(r => [toDateStr(r.date), r]));
+    const daily = [];
+    const cursor = new Date(currentYear, 0, 1);
+    while (cursor <= now) {
+      const dateStr = toDateStr(cursor);
+      const r = dailyMap.get(dateStr);
+      daily.push({
+        date: dateStr,
+        incident_count: r ? parseInt(r.incident_count) : 0,
+        total_duration_ms: r ? parseInt(r.total_duration_ms || 0) : 0
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    res.status(200).json({
+      success: true,
+      year: currentYear,
+      top_devices,
+      yearly,
+      monthly,
+      daily
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get all individual downtime records for all devices
  */
 const getAllDowntimeRecords = async (req, res, next) => {
@@ -447,5 +572,6 @@ module.exports = {
   getDeviceDowntimeHistory,
   getDowntimeSummary,
   getDevicesDowntimeSummary,
-  getAllDowntimeRecords
+  getAllDowntimeRecords,
+  getDowntimeDashboard
 };

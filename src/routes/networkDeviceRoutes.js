@@ -7,6 +7,7 @@ router.get('/', networkDeviceController.getAllDevices);
 router.get('/downtime/summary', networkDeviceController.getDowntimeSummary);
 router.get('/downtime/devices', networkDeviceController.getDevicesDowntimeSummary);
 router.get('/downtime/all', networkDeviceController.getAllDowntimeRecords);
+router.get('/downtime/dashboard', networkDeviceController.getDowntimeDashboard);
 router.get('/:id', networkDeviceController.getDeviceById);
 router.get('/:id/downtime', networkDeviceController.getDeviceDowntimeHistory);
 

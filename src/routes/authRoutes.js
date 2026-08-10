@@ -1,7 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
+const ssoController = require('../controllers/ssoController');
 const { verifyToken, hasRole } = require('../middleware/authMiddleware');
+
+// GET /api/auth/sso/login - redirect to PEA SSO
+router.get('/sso/login', ssoController.ssoLogin);
+
+// GET /api/auth/sso/callback - PEA SSO redirects back here with ?code=...
+router.get('/sso/callback', ssoController.ssoCallback);
+
+// GET /api/auth/sso/logout - full page navigation, ends the PEA SSO session too
+router.get('/sso/logout', ssoController.ssoLogout);
 
 // POST /api/auth/login
 router.post('/login', authController.login);

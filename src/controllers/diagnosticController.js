@@ -221,6 +221,83 @@ const pingMultipleIps = async (req, res) => {
   }
 };
 
+const net = require('net');
+const ipLib = require('ip');
+const { buildCidrString } = require('../services/scannerService');
+
+/**
+ * Find which NetworkDevices site's subnet a given IP falls within, checking the
+ * same 3 (gateway, subnet) pairs used for LAN scanning: main, sub_ip1, sub_ip2.
+ */
+const findSiteByIp = async (targetIp) => {
+  const { NetworkDevices } = require('../models');
+
+  const devices = await NetworkDevices.findAll({
+    attributes: ['id', 'pea_name', 'province', 'gateway', 'subnet', 'sub_ip1_gateway', 'sub_ip1_subnet', 'sub_ip2_gateway', 'sub_ip2_subnet']
+  });
+
+  for (const d of devices) {
+    const pairs = [
+      [d.gateway, d.subnet],
+      [d.sub_ip1_gateway, d.sub_ip1_subnet],
+      [d.sub_ip2_gateway, d.sub_ip2_subnet]
+    ];
+
+    for (const [gw, mask] of pairs) {
+      if (!gw || gw === '-' || !mask || mask === '-') continue;
+
+      try {
+        const cidr = ipLib.cidrSubnet(buildCidrString(gw, mask));
+        if (cidr.contains(targetIp)) {
+          return { device_id: d.id, pea_name: d.pea_name, province: d.province };
+        }
+      } catch (err) {
+        // Malformed IP/mask data on this device - skip it and keep checking others
+      }
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Check whether a single IP is currently online (live ping), and which PEA site's
+ * subnet it belongs to (if any).
+ */
+const checkIp = async (req, res) => {
+  const { ip } = req.params;
+
+  if (!net.isIP(ip)) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid IP address: "${ip}"`
+    });
+  }
+
+  try {
+    const [result, site] = await Promise.all([
+      pingLib.promise.probe(ip, { timeout: 3, extra: ['-n', '3'] }),
+      findSiteByIp(ip)
+    ]);
+
+    res.status(200).json({
+      success: true,
+      ip,
+      alive: result.alive,
+      latency_ms: result.alive ? parseFloat(result.avg) : null,
+      packet_loss: result.alive ? (result.packetLoss ? parseFloat(result.packetLoss) : 0) : 100,
+      site,
+      checked_at: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to ping IP.',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   ping,
   downloadTest,
@@ -228,5 +305,6 @@ module.exports = {
   reportResults,
   getHistory,
   getMyIp,
-  pingMultipleIps
+  pingMultipleIps,
+  checkIp
 };

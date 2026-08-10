@@ -9,7 +9,18 @@ const logDowntime = async (device, status) => {
   try {
     const now = new Date();
     if (status === 'down') {
-      // Create a new downtime record when device goes down
+      // Guard against creating a duplicate: if this device already has an open
+      // (unclosed) down record, it's still the same ongoing incident - don't
+      // start a second one (this was the root cause of permanently orphaned
+      // rows when two status-check paths raced each other, e.g. the background
+      // ping loop and an on-demand /api/latency/check/:id call).
+      const existingOpen = await DeviceDowntime.findOne({
+        where: { device_id: device.id, status: 'down', up_at: null }
+      });
+      if (existingOpen) {
+        return;
+      }
+
       await DeviceDowntime.create({
         device_id: device.id,
         down_at: now,
@@ -17,24 +28,24 @@ const logDowntime = async (device, status) => {
       });
       console.log(`[Downtime] Logged DOWN event for ${device.pea_name}`);
     } else if (status === 'up') {
-      // Find the latest open downtime record and close it
-      const lastDowntime = await DeviceDowntime.findOne({
-        where: {
-          device_id: device.id,
-          status: 'down',
-          up_at: null
-        },
-        order: [['down_at', 'DESC']]
+      // Close every open downtime record for this device, not just the latest -
+      // self-heals if a duplicate ever slips through despite the guard above.
+      const openRecords = await DeviceDowntime.findAll({
+        where: { device_id: device.id, status: 'down', up_at: null },
+        order: [['down_at', 'ASC']]
       });
 
-      if (lastDowntime) {
-        const durationMs = now.getTime() - lastDowntime.down_at.getTime();
-        await lastDowntime.update({
+      for (const record of openRecords) {
+        const durationMs = now.getTime() - record.down_at.getTime();
+        await record.update({
           up_at: now,
           duration_ms: durationMs,
           status: 'up'
         });
-        console.log(`[Downtime] Logged UP event for ${device.pea_name}. Duration: ${Math.round(durationMs/1000)}s`);
+      }
+
+      if (openRecords.length > 0) {
+        console.log(`[Downtime] Logged UP event for ${device.pea_name}. Closed ${openRecords.length} open record(s).`);
       }
     }
   } catch (err) {

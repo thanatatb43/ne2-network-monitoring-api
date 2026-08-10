@@ -4,27 +4,31 @@ const ipLib = require('ip');
 const dns = require('dns').promises;
 
 /**
+ * Normalize a (networkId/gateway, mask) pair into a CIDR string, accepting mask as
+ * "/24", "255.255.255.0", or "24".
+ */
+const buildCidrString = (networkId, subnetMask) => {
+  if (!subnetMask) return networkId;
+  if (subnetMask.startsWith('/')) return `${networkId}${subnetMask}`;
+  if (subnetMask.includes('.')) {
+    // Handle full mask like 255.255.255.0
+    return `${networkId}/${ipLib.subnet('0.0.0.0', subnetMask).subnetMaskLength}`;
+  }
+  if (!isNaN(subnetMask)) {
+    // Handle numeric mask like 24
+    return `${networkId}/${subnetMask}`;
+  }
+  return `${networkId}${subnetMask}`;
+};
+
+/**
  * Service to scan a subnet and discover active clients
  */
 const scanSubnet = async (networkId, subnetMask) => {
   console.log(`[ScannerService] Scanning ${networkId}${subnetMask}...`);
-  
+
   try {
-    let subnetStr = networkId;
-    if (subnetMask) {
-      if (subnetMask.startsWith('/')) {
-        subnetStr = `${networkId}${subnetMask}`;
-      } else if (subnetMask.includes('.')) {
-        // Handle full mask like 255.255.255.0
-        subnetStr = `${networkId}/${ipLib.fromPrefixLen(ipLib.maskToCIDR(subnetMask))}`;
-      } else if (!isNaN(subnetMask)) {
-        // Handle numeric mask like 24
-        subnetStr = `${networkId}/${subnetMask}`;
-      } else {
-        subnetStr = `${networkId}${subnetMask}`;
-      }
-    }
-    
+    const subnetStr = buildCidrString(networkId, subnetMask);
     const subnet = ipLib.cidrSubnet(subnetStr);
     const offsetHours = process.env.DB_TIMEZONE_OFFSET !== undefined ? parseInt(process.env.DB_TIMEZONE_OFFSET) : 0;
     const checkedAt = new Date(new Date().getTime() + offsetHours * 60 * 60 * 1000);
@@ -184,5 +188,6 @@ const getArpTable = () => {
 module.exports = {
   scanSubnet,
   getNbtStatInfo,
-  normalizeMac
+  normalizeMac,
+  buildCidrString
 };

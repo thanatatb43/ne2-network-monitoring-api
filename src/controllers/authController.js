@@ -147,7 +147,8 @@ const login = async (req, res, next) => {
         first_name: user.first_name,
         last_name: user.last_name,
         pea_branch: user.pea_branch,
-        pea_division: user.pea_division
+        pea_division: user.pea_division,
+        position: user.position
       }
     });
 

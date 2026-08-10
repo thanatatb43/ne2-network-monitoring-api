@@ -142,7 +142,9 @@ const getEquipmentBySite = async (req, res, next) => {
     const equipment = await OfficeEquipment.findAll({
       where: { pea_site_id },
       include: includeRelations,
-      order: [['name', 'ASC']]
+      // updatedAt equals createdAt until first edit, so sorting by it alone
+      // covers "most recently created or edited" in one column.
+      order: [['updatedAt', 'DESC']]
     });
 
     const network_ip = await getSiteNetworkIp(pea_site_id);

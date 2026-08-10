@@ -10,6 +10,9 @@ router.get('/ping', diagnosticController.ping);
 // POST /api/test/ping-check - Check array of IPs
 router.post('/ping-check', diagnosticController.pingMultipleIps);
 
+// GET /api/test/check-ip/:ip - Check whether a single IP is online (live ping)
+router.get('/check-ip/:ip', diagnosticController.checkIp);
+
 // GET /api/test/download - Download speed test
 router.get('/download', diagnosticController.downloadTest);
 

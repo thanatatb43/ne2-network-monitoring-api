@@ -45,6 +45,10 @@ module.exports = (sequelize) => {
     pea_division: {
       type: DataTypes.STRING,
       allowNull: true
+    },
+    position: {
+      type: DataTypes.STRING,
+      allowNull: true
     }
   }, {
     sequelize,
