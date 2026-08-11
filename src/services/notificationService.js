@@ -1,6 +1,6 @@
 const https = require('https');
 const { URL } = require('url');
-const { DeviceDowntime } = require('../models');
+const { DeviceDowntime, DeviceMetrics } = require('../models');
 
 /**
  * Helper to log downtime events to the database
@@ -175,6 +175,40 @@ const sendTeamsNotification = async (device, status, previousStatus) => {
   });
 };
 
+/**
+ * Self-healing check, meant to run once on server startup: closes any DeviceDowntime
+ * record left open (up_at: null) whose device's latest DeviceMetrics already shows
+ * it's back up. This can happen if the process was killed/restarted mid-flight while
+ * the fire-and-forget notification/close for a recovery was still in progress.
+ */
+const reconcileOrphanedDowntime = async () => {
+  try {
+    const openRecords = await DeviceDowntime.findAll({
+      where: { status: 'down', up_at: null }
+    });
+
+    if (openRecords.length === 0) return;
+
+    let closedCount = 0;
+    for (const record of openRecords) {
+      const metric = await DeviceMetrics.findOne({ where: { device_id: record.device_id } });
+      if (metric && metric.status === 'up' && metric.checked_at > record.down_at) {
+        const upAt = metric.checked_at;
+        const durationMs = Math.max(0, upAt.getTime() - record.down_at.getTime());
+        await record.update({ up_at: upAt, duration_ms: durationMs, status: 'up' });
+        closedCount++;
+      }
+    }
+
+    if (closedCount > 0) {
+      console.log(`[Downtime] Startup reconciliation: closed ${closedCount}/${openRecords.length} stale open record(s).`);
+    }
+  } catch (err) {
+    console.error('[Downtime] Startup reconciliation failed:', err);
+  }
+};
+
 module.exports = {
-  sendTeamsNotification
+  sendTeamsNotification,
+  reconcileOrphanedDowntime
 };

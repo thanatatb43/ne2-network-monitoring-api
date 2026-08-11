@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const routes = require('./routes');
 const errorHandler = require('./middlewares/errorHandler');
@@ -14,6 +15,9 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: true }));
+
+// Serve uploaded files (e.g. office equipment photos) statically
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Health Check
 app.get('/health', (req, res) => {

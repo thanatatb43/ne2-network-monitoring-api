@@ -79,6 +79,47 @@ module.exports = (sequelize, DataTypes) => {
     created_by_user_id: {
       type: DataTypes.INTEGER,
       allowNull: true
+    },
+    serial_number: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    asset_number: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    asset_owner: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    asset_owner_emp_id: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    // Array of up to 5 uploaded photo paths (e.g. "/uploads/office-equipment/xxx.jpg").
+    // Stored as TEXT with manual JSON (de)serialization - MySQL's native JSON type
+    // doesn't get auto-parsed back into a JS array by this Sequelize/mysql2 setup
+    // (same reason DeviceAuditLog/OfficeEquipmentAuditLog.data does this too).
+    photos: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      get() {
+        const value = this.getDataValue('photos');
+        return value ? JSON.parse(value) : [];
+      },
+      set(value) {
+        this.setDataValue('photos', value ? JSON.stringify(value) : null);
+      }
+    },
+    // Single photo of where the equipment is physically stored
+    storage_photo: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    // Free-text description of where the equipment is physically stored (e.g. "ชั้น 2 ห้องเก็บของ")
+    storage_location: {
+      type: DataTypes.STRING,
+      allowNull: true
     }
   }, {
     sequelize,

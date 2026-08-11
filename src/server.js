@@ -10,6 +10,7 @@ const {
   updateDevicesAvailabilityDashboard 
 } = require('./services/aggregationService');
 const { runCleanupJob, runHourlyCleanupJob } = require('./services/cleanupService');
+const { reconcileOrphanedDowntime } = require('./services/notificationService');
 const db = require('./models');
 
 app.listen(port, () => {
@@ -18,6 +19,10 @@ app.listen(port, () => {
   // Start continuous monitoring loop (10 devices at a time)
   // This replaces the old cron-based ping job
   startContinuousPingLoop();
+
+  // Close any downtime record left open from a previous process that was killed/restarted mid-flight
+  console.log('[Server] Checking for stale open downtime records on startup...');
+  reconcileOrphanedDowntime().catch(err => console.error('[Server] Startup downtime reconciliation failed:', err));
 
   // Catch up on missing snapshots on startup
   console.log('[Server] Checking for missing snapshots on startup...');
