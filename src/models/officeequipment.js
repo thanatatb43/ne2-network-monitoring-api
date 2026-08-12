@@ -54,7 +54,7 @@ module.exports = (sequelize, DataTypes) => {
     status: {
       type: DataTypes.STRING,
       allowNull: false,
-      defaultValue: 'active'
+      defaultValue: 'ใช้งาน'
     },
     notes: {
       type: DataTypes.TEXT,

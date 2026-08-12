@@ -507,7 +507,7 @@ const borrowEquipment = async (req, res, next) => {
       notes: notes || null
     });
 
-    await equipment.update({ status: 'borrowed' });
+    await equipment.update({ status: 'ถูกยืม' });
 
     await logAudit(req, 'BORROW', equipment, { loan_id: loan.id, borrower_name, due_date: loan.due_date });
 
@@ -554,7 +554,7 @@ const returnEquipment = async (req, res, next) => {
       notes: notes || openLoan.notes
     });
 
-    await equipment.update({ status: 'active' });
+    await equipment.update({ status: 'ใช้งาน' });
 
     await logAudit(req, 'RETURN', equipment, { loan_id: openLoan.id });
 

@@ -14,6 +14,7 @@ const webhookRoutes = require('./webhookRoutes');
 const budgetRoutes = require('./budgetRoutes');
 const peaJobRoutes = require('./peaJobRoutes');
 const officeEquipmentRoutes = require('./officeEquipmentRoutes');
+const peaSiteRoutes = require('./peaSiteRoutes');
 
 router.use('/devices', networkDeviceRoutes);
 router.use('/latency', latencyRoutes);
@@ -25,5 +26,6 @@ router.use('/webhooks', webhookRoutes);
 router.use('/budgets', budgetRoutes);
 router.use('/pea-jobs', peaJobRoutes);
 router.use('/office-equipment', officeEquipmentRoutes);
+router.use('/pea-sites', peaSiteRoutes);
 
 module.exports = router;
