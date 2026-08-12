@@ -4,6 +4,7 @@ const path = require('path');
 const sharp = require('sharp');
 const QRCode = require('qrcode');
 const { OfficeEquipment, OfficeEquipmentAuditLog, OfficeEquipmentLoan, PeaSite, User, NetworkDevices } = require('../models');
+const { notifyEquipmentLoanEvent } = require('../services/notificationService');
 
 const MAX_PHOTOS = 5;
 
@@ -331,6 +332,22 @@ const updateEquipment = async (req, res, next) => {
     }
 
     const { id: _, createdAt, updatedAt, created_by_user_id, ...body } = req.body;
+
+    // Block manual status changes while equipment is out on an open loan - the
+    // caller must return it first (POST /:id/return) so returned_at gets set
+    // properly, rather than editing status directly and losing that record.
+    if (body.status !== undefined && body.status !== '' && body.status !== equipment.status) {
+      const openLoan = await OfficeEquipmentLoan.findOne({
+        where: { equipment_id: id, returned_at: null }
+      });
+      if (openLoan) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot change status while equipment is borrowed and not yet returned. Return it first via POST /:id/return.'
+        });
+      }
+    }
+
     const updateData = {};
 
     for (const [key, value] of Object.entries(body)) {
@@ -456,7 +473,11 @@ const getEquipmentQrCode = async (req, res, next) => {
 const borrowEquipment = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { due_date, notes } = req.body;
+    const { due_date, notes, borrower_name, borrower_emp_id, borrower_contact } = req.body;
+
+    if (!borrower_name) {
+      return res.status(400).json({ success: false, message: 'borrower_name is required' });
+    }
 
     const equipment = await OfficeEquipment.findByPk(id);
     if (!equipment) {
@@ -475,7 +496,12 @@ const borrowEquipment = async (req, res, next) => {
 
     const loan = await OfficeEquipmentLoan.create({
       equipment_id: id,
+      // borrowed_by_user_id is the logged-in staff who processed this scan, not
+      // the borrower - the borrower is whoever was entered manually below.
       borrowed_by_user_id: req.user ? req.user.id : null,
+      borrower_name,
+      borrower_emp_id: borrower_emp_id || null,
+      borrower_contact: borrower_contact || null,
       borrowed_at: new Date(),
       due_date: due_date || null,
       notes: notes || null
@@ -483,7 +509,10 @@ const borrowEquipment = async (req, res, next) => {
 
     await equipment.update({ status: 'borrowed' });
 
-    await logAudit(req, 'BORROW', equipment, { loan_id: loan.id, due_date: loan.due_date });
+    await logAudit(req, 'BORROW', equipment, { loan_id: loan.id, borrower_name, due_date: loan.due_date });
+
+    // Fire-and-forget: don't let a slow/unreachable Teams webhook delay the response
+    notifyEquipmentLoanEvent(loan, equipment, 'borrow');
 
     res.status(201).json({
       success: true,
@@ -528,6 +557,9 @@ const returnEquipment = async (req, res, next) => {
     await equipment.update({ status: 'active' });
 
     await logAudit(req, 'RETURN', equipment, { loan_id: openLoan.id });
+
+    // Fire-and-forget: don't let a slow/unreachable Teams webhook delay the response
+    notifyEquipmentLoanEvent(openLoan, equipment, 'return');
 
     res.status(200).json({
       success: true,

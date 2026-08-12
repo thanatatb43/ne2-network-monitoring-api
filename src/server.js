@@ -10,7 +10,7 @@ const {
   updateDevicesAvailabilityDashboard 
 } = require('./services/aggregationService');
 const { runCleanupJob, runHourlyCleanupJob } = require('./services/cleanupService');
-const { reconcileOrphanedDowntime } = require('./services/notificationService');
+const { reconcileOrphanedDowntime, notifyOverdueEquipmentLoans } = require('./services/notificationService');
 const db = require('./models');
 
 app.listen(port, () => {
@@ -57,6 +57,13 @@ app.listen(port, () => {
     await runDailyAvailabilitySnapshot();
     await updateDevicesAvailabilityDashboard();
     console.log(`[Cron] Daily Snapshot Job Complete`);
+  }, { timezone: 'Asia/Bangkok' });
+
+  // 9:00 AM: Notify Teams of any overdue (not yet returned) office equipment loans
+  cron.schedule('0 9 * * *', async () => {
+    console.log(`[Cron] Starting Overdue Equipment Loan Check (9:00 AM)`);
+    await notifyOverdueEquipmentLoans();
+    console.log(`[Cron] Overdue Equipment Loan Check Complete`);
   }, { timezone: 'Asia/Bangkok' });
 
 });

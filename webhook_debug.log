@@ -3830,3 +3830,425 @@
   "hmacMatch": true
 }
 ---
+{
+  "timestamp": "2026-08-12T03:53:08.203Z",
+  "headers": {
+    "host": "auditor-precious-behaviour-first.trycloudflare.com",
+    "user-agent": "Go-http-client/2.0",
+    "content-length": "2030",
+    "accept": "application/json",
+    "accept-encoding": "gzip",
+    "authorization": "HMAC XYpIJyp98uGQft89+LOcXehsxug6Z/cfI450F2yv+Qw=",
+    "cdn-loop": "cloudflare; loops=1; subreqs=1",
+    "cf-connecting-ip": "70.152.75.179",
+    "cf-ew-via": "15",
+    "cf-ipcountry": "JP",
+    "cf-ray": "a29c88019a6faf81-SIN",
+    "cf-visitor": "{\"scheme\":\"https\"}",
+    "cf-warp-tag-id": "de918918-54c5-4550-abfd-6f21c707068d",
+    "cf-worker": "trycloudflare.com",
+    "connection": "keep-alive",
+    "content-type": "application/json; charset=utf-8",
+    "referer": "https://teams.microsoft.com/",
+    "request-id": "|112aff60d784f45aa0c258e8ed1560d8.c3e3595d2f43ae5b.",
+    "traceparent": "00-112aff60d784f45aa0c258e8ed1560d8-c3e3595d2f43ae5b-00",
+    "x-forwarded-for": "70.152.75.179",
+    "x-forwarded-proto": "https"
+  },
+  "body": {
+    "type": "message",
+    "id": "1786506786180",
+    "timestamp": "2026-08-12T03:53:06.229135+00:00",
+    "localTimestamp": "2026-08-12T10:53:06.229135+07:00",
+    "localTimezone": "Asia/Bangkok",
+    "serviceUrl": "https://smba.trafficmanager.net/apac/a2339f6d-bf4a-44db-88ec-cb8f27da4abb/",
+    "channelId": "msteams",
+    "from": {
+      "id": "29:1HL9qfPJpUYFa20Yqn3_lHgwBWd_9FXG3ykX3IlfIr9kA6bazbruW4sS5nfKoIAw-FoI9cJ7c7qHaVIu5gKMtAw",
+      "name": "Thanatat Boorapan",
+      "aadObjectId": "9fccb056-c09f-4b17-b4f5-350bced094f9",
+      "role": null
+    },
+    "conversation": {
+      "isGroup": true,
+      "conversationType": "channel",
+      "id": "19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2;messageid=1786506786180",
+      "name": null,
+      "aadObjectId": null,
+      "role": null,
+      "tenantId": "a2339f6d-bf4a-44db-88ec-cb8f27da4abb"
+    },
+    "recipient": null,
+    "textFormat": "plain",
+    "attachmentLayout": null,
+    "membersAdded": null,
+    "membersRemoved": null,
+    "reactionsAdded": null,
+    "reactionsRemoved": null,
+    "topicName": null,
+    "historyDisclosed": null,
+    "locale": "en-US",
+    "text": "<p><at>ไก่</at>&nbsp;status</p>",
+    "speak": null,
+    "inputHint": null,
+    "summary": null,
+    "suggestedActions": null,
+    "attachments": [
+      {
+        "contentType": "text/html",
+        "contentUrl": null,
+        "content": "<p><span itemtype=\"http://schema.skype.com/Mention\" itemscope=\"\" itemid=\"0\">ไก่</span>&nbsp;status</p>",
+        "name": null,
+        "thumbnailUrl": null
+      }
+    ],
+    "entities": [
+      {
+        "type": "clientInfo",
+        "locale": "en-US",
+        "country": "US",
+        "platform": "Windows",
+        "timezone": "Asia/Bangkok"
+      }
+    ],
+    "channelData": {
+      "teamsChannelId": "19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2",
+      "teamsTeamId": "19:a068b803dd7848c88e42a212d918399f@thread.tacv2",
+      "channel": {
+        "id": "19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2"
+      },
+      "team": {
+        "aadGroupId": "8657e0b8-628f-4705-b52f-1d05164a1c00",
+        "id": "19:a068b803dd7848c88e42a212d918399f@thread.tacv2"
+      },
+      "tenant": {
+        "id": "a2339f6d-bf4a-44db-88ec-cb8f27da4abb"
+      }
+    },
+    "action": null,
+    "replyToId": null,
+    "label": null,
+    "valueType": null,
+    "value": null,
+    "name": null,
+    "relatesTo": null,
+    "code": null,
+    "expiration": null,
+    "importance": null,
+    "deliveryMode": null,
+    "listenFor": null,
+    "textHighlights": null,
+    "semanticAction": null,
+    "callerId": "urn:botframework:azure"
+  },
+  "rawBodyLength": 2030,
+  "rawBodyString": "{\"type\":\"message\",\"id\":\"1786506786180\",\"timestamp\":\"2026-08-12T03:53:06.229135+00:00\",\"localTimestamp\":\"2026-08-12T10:53:06.229135+07:00\",\"localTimezone\":\"Asia/Bangkok\",\"serviceUrl\":\"https://smba.trafficmanager.net/apac/a2339f6d-bf4a-44db-88ec-cb8f27da4abb/\",\"channelId\":\"msteams\",\"from\":{\"id\":\"29:1HL9qfPJpUYFa20Yqn3_lHgwBWd_9FXG3ykX3IlfIr9kA6bazbruW4sS5nfKoIAw-FoI9cJ7c7qHaVIu5gKMtAw\",\"name\":\"Thanatat Boorapan\",\"aadObjectId\":\"9fccb056-c09f-4b17-b4f5-350bced094f9\",\"role\":null},\"conversation\":{\"isGroup\":true,\"conversationType\":\"channel\",\"id\":\"19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2;messageid=1786506786180\",\"name\":null,\"aadObjectId\":null,\"role\":null,\"tenantId\":\"a2339f6d-bf4a-44db-88ec-cb8f27da4abb\"},\"recipient\":null,\"textFormat\":\"plain\",\"attachmentLayout\":null,\"membersAdded\":null,\"membersRemoved\":null,\"reactionsAdded\":null,\"reactionsRemoved\":null,\"topicName\":null,\"historyDisclosed\":null,\"locale\":\"en-US\",\"text\":\"<p><at>ไก่</at>&nbsp;status</p>\",\"speak\":null,\"inputHint\":null,\"summary\":null,\"suggestedActions\":null,\"attachments\":[{\"contentType\":\"text/html\",\"contentUrl\":null,\"content\":\"<p><span itemtype=\\\"http://schema.skype.com/Mention\\\" itemscope=\\\"\\\" itemid=\\\"0\\\">ไก่</span>&nbsp;status</p>\",\"name\":null,\"thumbnailUrl\":null}],\"entities\":[{\"type\":\"clientInfo\",\"locale\":\"en-US\",\"country\":\"US\",\"platform\":\"Windows\",\"timezone\":\"Asia/Bangkok\"}],\"channelData\":{\"teamsChannelId\":\"19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2\",\"teamsTeamId\":\"19:a068b803dd7848c88e42a212d918399f@thread.tacv2\",\"channel\":{\"id\":\"19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2\"},\"team\":{\"aadGroupId\":\"8657e0b8-628f-4705-b52f-1d05164a1c00\",\"id\":\"19:a068b803dd7848c88e42a212d918399f@thread.tacv2\"},\"tenant\":{\"id\":\"a2339f6d-bf4a-44db-88ec-cb8f27da4abb\"}},\"action\":null,\"replyToId\":null,\"label\":null,\"valueType\":null,\"value\":null,\"name\":null,\"relatesTo\":null,\"code\":null,\"expiration\":null,\"importance\":null,\"deliveryMode\":null,\"listenFor\":null,\"textHighlights\":null,\"semanticAction\":null,\"callerId\":\"urn:botframework:azure\"}",
+  "teamsTokenConfigured": true,
+  "teamsTokenLength": 44,
+  "expectedHmac": "XYpIJyp98uGQft89+LOcXehsxug6Z/cfI450F2yv+Qw=",
+  "receivedHmac": "XYpIJyp98uGQft89+LOcXehsxug6Z/cfI450F2yv+Qw=",
+  "hmacMatch": true
+}
+---
+{
+  "timestamp": "2026-08-12T03:56:52.700Z",
+  "headers": {
+    "content-type": "application/json",
+    "content-length": "20",
+    "host": "localhost:3000",
+    "connection": "keep-alive"
+  },
+  "body": {
+    "text": "ยืม"
+  },
+  "rawBodyLength": 20,
+  "rawBodyString": "{\"text\":\"ยืม\"}",
+  "teamsTokenConfigured": true,
+  "teamsTokenLength": 44,
+  "expectedHmac": "Wul8kdTL4+YKHMOc4FHSuQ+YGmAEljOPqEvPAUUPkIk=",
+  "receivedHmac": null,
+  "hmacMatch": false
+}
+---
+{
+  "timestamp": "2026-08-12T03:57:02.905Z",
+  "headers": {
+    "content-type": "application/json",
+    "content-length": "20",
+    "authorization": "HMAC Wul8kdTL4+YKHMOc4FHSuQ+YGmAEljOPqEvPAUUPkIk=",
+    "host": "localhost:3000",
+    "connection": "keep-alive"
+  },
+  "body": {
+    "text": "ยืม"
+  },
+  "rawBodyLength": 20,
+  "rawBodyString": "{\"text\":\"ยืม\"}",
+  "teamsTokenConfigured": true,
+  "teamsTokenLength": 44,
+  "expectedHmac": "Wul8kdTL4+YKHMOc4FHSuQ+YGmAEljOPqEvPAUUPkIk=",
+  "receivedHmac": "Wul8kdTL4+YKHMOc4FHSuQ+YGmAEljOPqEvPAUUPkIk=",
+  "hmacMatch": true
+}
+---
+{
+  "timestamp": "2026-08-12T03:57:27.624Z",
+  "headers": {
+    "content-type": "application/json",
+    "content-length": "15",
+    "authorization": "HMAC Fup7LTJ3YR4xpGCwFskSExAX4eze+7HB/w9gugTFAjw=",
+    "host": "localhost:3000",
+    "connection": "keep-alive"
+  },
+  "body": {
+    "text": "help"
+  },
+  "rawBodyLength": 15,
+  "rawBodyString": "{\"text\":\"help\"}",
+  "teamsTokenConfigured": true,
+  "teamsTokenLength": 44,
+  "expectedHmac": "Fup7LTJ3YR4xpGCwFskSExAX4eze+7HB/w9gugTFAjw=",
+  "receivedHmac": "Fup7LTJ3YR4xpGCwFskSExAX4eze+7HB/w9gugTFAjw=",
+  "hmacMatch": true
+}
+---
+{
+  "timestamp": "2026-08-12T03:58:23.598Z",
+  "headers": {
+    "host": "auditor-precious-behaviour-first.trycloudflare.com",
+    "user-agent": "Go-http-client/2.0",
+    "content-length": "2028",
+    "accept": "application/json",
+    "accept-encoding": "gzip",
+    "authorization": "HMAC +Vg0mVXweiIRwAzs9OYjVkVQwGNQe7jksNWveXlitK8=",
+    "cdn-loop": "cloudflare; loops=1; subreqs=1",
+    "cf-connecting-ip": "70.152.14.41",
+    "cf-ew-via": "15",
+    "cf-ipcountry": "JP",
+    "cf-ray": "a29c8fb3c88afcb8-KIX",
+    "cf-visitor": "{\"scheme\":\"https\"}",
+    "cf-warp-tag-id": "de918918-54c5-4550-abfd-6f21c707068d",
+    "cf-worker": "trycloudflare.com",
+    "connection": "keep-alive",
+    "content-type": "application/json; charset=utf-8",
+    "referer": "https://teams.microsoft.com/",
+    "request-id": "|cedfc2175b80b0c1b8b0dafe78d8af09.458680f111ec98a8.",
+    "traceparent": "00-cedfc2175b80b0c1b8b0dafe78d8af09-458680f111ec98a8-00",
+    "x-forwarded-for": "70.152.14.41",
+    "x-forwarded-proto": "https"
+  },
+  "body": {
+    "type": "message",
+    "id": "1786507101667",
+    "timestamp": "2026-08-12T03:58:21.7098983+00:00",
+    "localTimestamp": "2026-08-12T10:58:21.7098983+07:00",
+    "localTimezone": "Asia/Bangkok",
+    "serviceUrl": "https://smba.trafficmanager.net/apac/a2339f6d-bf4a-44db-88ec-cb8f27da4abb/",
+    "channelId": "msteams",
+    "from": {
+      "id": "29:1HL9qfPJpUYFa20Yqn3_lHgwBWd_9FXG3ykX3IlfIr9kA6bazbruW4sS5nfKoIAw-FoI9cJ7c7qHaVIu5gKMtAw",
+      "name": "Thanatat Boorapan",
+      "aadObjectId": "9fccb056-c09f-4b17-b4f5-350bced094f9",
+      "role": null
+    },
+    "conversation": {
+      "isGroup": true,
+      "conversationType": "channel",
+      "id": "19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2;messageid=1786506786180",
+      "name": null,
+      "aadObjectId": null,
+      "role": null,
+      "tenantId": "a2339f6d-bf4a-44db-88ec-cb8f27da4abb"
+    },
+    "recipient": null,
+    "textFormat": "plain",
+    "attachmentLayout": null,
+    "membersAdded": null,
+    "membersRemoved": null,
+    "reactionsAdded": null,
+    "reactionsRemoved": null,
+    "topicName": null,
+    "historyDisclosed": null,
+    "locale": "en-US",
+    "text": "<p><at>ไก่</at>&nbsp;help</p>",
+    "speak": null,
+    "inputHint": null,
+    "summary": null,
+    "suggestedActions": null,
+    "attachments": [
+      {
+        "contentType": "text/html",
+        "contentUrl": null,
+        "content": "<p><span itemtype=\"http://schema.skype.com/Mention\" itemscope=\"\" itemid=\"0\">ไก่</span>&nbsp;help</p>",
+        "name": null,
+        "thumbnailUrl": null
+      }
+    ],
+    "entities": [
+      {
+        "type": "clientInfo",
+        "locale": "en-US",
+        "country": "US",
+        "platform": "Windows",
+        "timezone": "Asia/Bangkok"
+      }
+    ],
+    "channelData": {
+      "teamsChannelId": "19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2",
+      "teamsTeamId": "19:a068b803dd7848c88e42a212d918399f@thread.tacv2",
+      "channel": {
+        "id": "19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2"
+      },
+      "team": {
+        "aadGroupId": "8657e0b8-628f-4705-b52f-1d05164a1c00",
+        "id": "19:a068b803dd7848c88e42a212d918399f@thread.tacv2"
+      },
+      "tenant": {
+        "id": "a2339f6d-bf4a-44db-88ec-cb8f27da4abb"
+      }
+    },
+    "action": null,
+    "replyToId": null,
+    "label": null,
+    "valueType": null,
+    "value": null,
+    "name": null,
+    "relatesTo": null,
+    "code": null,
+    "expiration": null,
+    "importance": null,
+    "deliveryMode": null,
+    "listenFor": null,
+    "textHighlights": null,
+    "semanticAction": null,
+    "callerId": "urn:botframework:azure"
+  },
+  "rawBodyLength": 2028,
+  "rawBodyString": "{\"type\":\"message\",\"id\":\"1786507101667\",\"timestamp\":\"2026-08-12T03:58:21.7098983+00:00\",\"localTimestamp\":\"2026-08-12T10:58:21.7098983+07:00\",\"localTimezone\":\"Asia/Bangkok\",\"serviceUrl\":\"https://smba.trafficmanager.net/apac/a2339f6d-bf4a-44db-88ec-cb8f27da4abb/\",\"channelId\":\"msteams\",\"from\":{\"id\":\"29:1HL9qfPJpUYFa20Yqn3_lHgwBWd_9FXG3ykX3IlfIr9kA6bazbruW4sS5nfKoIAw-FoI9cJ7c7qHaVIu5gKMtAw\",\"name\":\"Thanatat Boorapan\",\"aadObjectId\":\"9fccb056-c09f-4b17-b4f5-350bced094f9\",\"role\":null},\"conversation\":{\"isGroup\":true,\"conversationType\":\"channel\",\"id\":\"19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2;messageid=1786506786180\",\"name\":null,\"aadObjectId\":null,\"role\":null,\"tenantId\":\"a2339f6d-bf4a-44db-88ec-cb8f27da4abb\"},\"recipient\":null,\"textFormat\":\"plain\",\"attachmentLayout\":null,\"membersAdded\":null,\"membersRemoved\":null,\"reactionsAdded\":null,\"reactionsRemoved\":null,\"topicName\":null,\"historyDisclosed\":null,\"locale\":\"en-US\",\"text\":\"<p><at>ไก่</at>&nbsp;help</p>\",\"speak\":null,\"inputHint\":null,\"summary\":null,\"suggestedActions\":null,\"attachments\":[{\"contentType\":\"text/html\",\"contentUrl\":null,\"content\":\"<p><span itemtype=\\\"http://schema.skype.com/Mention\\\" itemscope=\\\"\\\" itemid=\\\"0\\\">ไก่</span>&nbsp;help</p>\",\"name\":null,\"thumbnailUrl\":null}],\"entities\":[{\"type\":\"clientInfo\",\"locale\":\"en-US\",\"country\":\"US\",\"platform\":\"Windows\",\"timezone\":\"Asia/Bangkok\"}],\"channelData\":{\"teamsChannelId\":\"19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2\",\"teamsTeamId\":\"19:a068b803dd7848c88e42a212d918399f@thread.tacv2\",\"channel\":{\"id\":\"19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2\"},\"team\":{\"aadGroupId\":\"8657e0b8-628f-4705-b52f-1d05164a1c00\",\"id\":\"19:a068b803dd7848c88e42a212d918399f@thread.tacv2\"},\"tenant\":{\"id\":\"a2339f6d-bf4a-44db-88ec-cb8f27da4abb\"}},\"action\":null,\"replyToId\":null,\"label\":null,\"valueType\":null,\"value\":null,\"name\":null,\"relatesTo\":null,\"code\":null,\"expiration\":null,\"importance\":null,\"deliveryMode\":null,\"listenFor\":null,\"textHighlights\":null,\"semanticAction\":null,\"callerId\":\"urn:botframework:azure\"}",
+  "teamsTokenConfigured": true,
+  "teamsTokenLength": 44,
+  "expectedHmac": "+Vg0mVXweiIRwAzs9OYjVkVQwGNQe7jksNWveXlitK8=",
+  "receivedHmac": "+Vg0mVXweiIRwAzs9OYjVkVQwGNQe7jksNWveXlitK8=",
+  "hmacMatch": true
+}
+---
+{
+  "timestamp": "2026-08-12T03:58:41.145Z",
+  "headers": {
+    "host": "auditor-precious-behaviour-first.trycloudflare.com",
+    "user-agent": "Go-http-client/2.0",
+    "content-length": "2074",
+    "accept": "application/json",
+    "accept-encoding": "gzip",
+    "authorization": "HMAC jK8/w/C5E8m31pWP9FJfqZkp9hn9K8mH3WiOUgkCEec=",
+    "cdn-loop": "cloudflare; loops=1; subreqs=1",
+    "cf-connecting-ip": "70.152.224.5",
+    "cf-ew-via": "15",
+    "cf-ipcountry": "MY",
+    "cf-ray": "a29c90229e013cd8-KUL",
+    "cf-visitor": "{\"scheme\":\"https\"}",
+    "cf-warp-tag-id": "de918918-54c5-4550-abfd-6f21c707068d",
+    "cf-worker": "trycloudflare.com",
+    "connection": "keep-alive",
+    "content-type": "application/json; charset=utf-8",
+    "referer": "https://teams.microsoft.com/",
+    "request-id": "|2ae4a6c7b06efaea3077f9a62755d427.613372bd23546f2d.",
+    "traceparent": "00-2ae4a6c7b06efaea3077f9a62755d427-613372bd23546f2d-00",
+    "x-forwarded-for": "70.152.224.5",
+    "x-forwarded-proto": "https"
+  },
+  "body": {
+    "type": "message",
+    "id": "1786507119574",
+    "timestamp": "2026-08-12T03:58:39.6150361+00:00",
+    "localTimestamp": "2026-08-12T10:58:39.6150361+07:00",
+    "localTimezone": "Asia/Bangkok",
+    "serviceUrl": "https://smba.trafficmanager.net/apac/a2339f6d-bf4a-44db-88ec-cb8f27da4abb/",
+    "channelId": "msteams",
+    "from": {
+      "id": "29:1HL9qfPJpUYFa20Yqn3_lHgwBWd_9FXG3ykX3IlfIr9kA6bazbruW4sS5nfKoIAw-FoI9cJ7c7qHaVIu5gKMtAw",
+      "name": "Thanatat Boorapan",
+      "aadObjectId": "9fccb056-c09f-4b17-b4f5-350bced094f9",
+      "role": null
+    },
+    "conversation": {
+      "isGroup": true,
+      "conversationType": "channel",
+      "id": "19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2;messageid=1786507119574",
+      "name": null,
+      "aadObjectId": null,
+      "role": null,
+      "tenantId": "a2339f6d-bf4a-44db-88ec-cb8f27da4abb"
+    },
+    "recipient": null,
+    "textFormat": "plain",
+    "attachmentLayout": null,
+    "membersAdded": null,
+    "membersRemoved": null,
+    "reactionsAdded": null,
+    "reactionsRemoved": null,
+    "topicName": null,
+    "historyDisclosed": null,
+    "locale": "en-US",
+    "text": "<p><at>ไก่</at>&nbsp;รายการยืม</p>",
+    "speak": null,
+    "inputHint": null,
+    "summary": null,
+    "suggestedActions": null,
+    "attachments": [
+      {
+        "contentType": "text/html",
+        "contentUrl": null,
+        "content": "<p><span itemtype=\"http://schema.skype.com/Mention\" itemscope=\"\" itemid=\"0\">ไก่</span>&nbsp;รายการยืม</p>",
+        "name": null,
+        "thumbnailUrl": null
+      }
+    ],
+    "entities": [
+      {
+        "type": "clientInfo",
+        "locale": "en-US",
+        "country": "US",
+        "platform": "Windows",
+        "timezone": "Asia/Bangkok"
+      }
+    ],
+    "channelData": {
+      "teamsChannelId": "19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2",
+      "teamsTeamId": "19:a068b803dd7848c88e42a212d918399f@thread.tacv2",
+      "channel": {
+        "id": "19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2"
+      },
+      "team": {
+        "aadGroupId": "8657e0b8-628f-4705-b52f-1d05164a1c00",
+        "id": "19:a068b803dd7848c88e42a212d918399f@thread.tacv2"
+      },
+      "tenant": {
+        "id": "a2339f6d-bf4a-44db-88ec-cb8f27da4abb"
+      }
+    },
+    "action": null,
+    "replyToId": null,
+    "label": null,
+    "valueType": null,
+    "value": null,
+    "name": null,
+    "relatesTo": null,
+    "code": null,
+    "expiration": null,
+    "importance": null,
+    "deliveryMode": null,
+    "listenFor": null,
+    "textHighlights": null,
+    "semanticAction": null,
+    "callerId": "urn:botframework:azure"
+  },
+  "rawBodyLength": 2074,
+  "rawBodyString": "{\"type\":\"message\",\"id\":\"1786507119574\",\"timestamp\":\"2026-08-12T03:58:39.6150361+00:00\",\"localTimestamp\":\"2026-08-12T10:58:39.6150361+07:00\",\"localTimezone\":\"Asia/Bangkok\",\"serviceUrl\":\"https://smba.trafficmanager.net/apac/a2339f6d-bf4a-44db-88ec-cb8f27da4abb/\",\"channelId\":\"msteams\",\"from\":{\"id\":\"29:1HL9qfPJpUYFa20Yqn3_lHgwBWd_9FXG3ykX3IlfIr9kA6bazbruW4sS5nfKoIAw-FoI9cJ7c7qHaVIu5gKMtAw\",\"name\":\"Thanatat Boorapan\",\"aadObjectId\":\"9fccb056-c09f-4b17-b4f5-350bced094f9\",\"role\":null},\"conversation\":{\"isGroup\":true,\"conversationType\":\"channel\",\"id\":\"19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2;messageid=1786507119574\",\"name\":null,\"aadObjectId\":null,\"role\":null,\"tenantId\":\"a2339f6d-bf4a-44db-88ec-cb8f27da4abb\"},\"recipient\":null,\"textFormat\":\"plain\",\"attachmentLayout\":null,\"membersAdded\":null,\"membersRemoved\":null,\"reactionsAdded\":null,\"reactionsRemoved\":null,\"topicName\":null,\"historyDisclosed\":null,\"locale\":\"en-US\",\"text\":\"<p><at>ไก่</at>&nbsp;รายการยืม</p>\",\"speak\":null,\"inputHint\":null,\"summary\":null,\"suggestedActions\":null,\"attachments\":[{\"contentType\":\"text/html\",\"contentUrl\":null,\"content\":\"<p><span itemtype=\\\"http://schema.skype.com/Mention\\\" itemscope=\\\"\\\" itemid=\\\"0\\\">ไก่</span>&nbsp;รายการยืม</p>\",\"name\":null,\"thumbnailUrl\":null}],\"entities\":[{\"type\":\"clientInfo\",\"locale\":\"en-US\",\"country\":\"US\",\"platform\":\"Windows\",\"timezone\":\"Asia/Bangkok\"}],\"channelData\":{\"teamsChannelId\":\"19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2\",\"teamsTeamId\":\"19:a068b803dd7848c88e42a212d918399f@thread.tacv2\",\"channel\":{\"id\":\"19:9832ffe2ce2d465c8185d60130ab0dd2@thread.tacv2\"},\"team\":{\"aadGroupId\":\"8657e0b8-628f-4705-b52f-1d05164a1c00\",\"id\":\"19:a068b803dd7848c88e42a212d918399f@thread.tacv2\"},\"tenant\":{\"id\":\"a2339f6d-bf4a-44db-88ec-cb8f27da4abb\"}},\"action\":null,\"replyToId\":null,\"label\":null,\"valueType\":null,\"value\":null,\"name\":null,\"relatesTo\":null,\"code\":null,\"expiration\":null,\"importance\":null,\"deliveryMode\":null,\"listenFor\":null,\"textHighlights\":null,\"semanticAction\":null,\"callerId\":\"urn:botframework:azure\"}",
+  "teamsTokenConfigured": true,
+  "teamsTokenLength": 44,
+  "expectedHmac": "jK8/w/C5E8m31pWP9FJfqZkp9hn9K8mH3WiOUgkCEec=",
+  "receivedHmac": "jK8/w/C5E8m31pWP9FJfqZkp9hn9K8mH3WiOUgkCEec=",
+  "hmacMatch": true
+}
+---

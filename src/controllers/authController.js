@@ -158,6 +158,35 @@ const login = async (req, res, next) => {
 };
 
 /**
+ * Check whether the caller's token is still valid (not expired, not blacklisted)
+ * and return the current user record. Meant for frontend to call on app load to
+ * decide whether a stored token from a previous session can still be used.
+ * Requires the verifyToken middleware, which already rejects with 401 for a
+ * missing/expired/revoked token before this handler ever runs.
+ */
+const verify = async (req, res, next) => {
+  try {
+    const user = await User.findByPk(req.user.id, {
+      attributes: ['id', 'username', 'role', 'first_name', 'last_name', 'pea_branch', 'pea_division', 'position']
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'User no longer exists'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      user
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Handle user logout (Blacklist token)
  */
 const logout = async (req, res, next) => {
@@ -345,5 +374,6 @@ module.exports = {
   getUsers,
   register,
   updateUser,
-  deleteUser
+  deleteUser,
+  verify
 };

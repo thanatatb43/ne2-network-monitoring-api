@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { DeviceMetrics, NetworkDevices, Sequelize } = require('../models');
+const { DeviceMetrics, NetworkDevices, OfficeEquipmentLoan, OfficeEquipment, Sequelize } = require('../models');
 const { Op } = require('sequelize');
 
 /**
@@ -186,6 +186,38 @@ const handleDevices = async () => {
 };
 
 /**
+ * loans / ยืม / รายการยืม - list all office equipment currently borrowed (not yet returned)
+ */
+const handleLoans = async () => {
+  const openLoans = await OfficeEquipmentLoan.findAll({
+    where: { returned_at: null },
+    include: [{ model: OfficeEquipment, as: 'equipment', attributes: ['name'] }],
+    order: [['borrowed_at', 'ASC']]
+  });
+
+  if (openLoans.length === 0) {
+    return '✅ ไม่มีอุปกรณ์ที่ถูกยืมอยู่ในขณะนี้';
+  }
+
+  const now = new Date();
+  let listText = `📋 **รายการอุปกรณ์ที่กำลังถูกยืม (${openLoans.length} รายการ)**\n\n`;
+
+  openLoans.forEach(loan => {
+    const equipName = loan.equipment ? loan.equipment.name : `#${loan.equipment_id}`;
+    const isOverdue = loan.due_date && new Date(loan.due_date) < now;
+    const dueStr = loan.due_date
+      ? new Date(loan.due_date).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })
+      : 'ไม่ระบุ';
+
+    listText += `${isOverdue ? '⚠️' : '📦'} **${equipName}**\n` +
+      `  • ผู้ยืม: ${loan.borrower_name || 'ไม่ระบุ'} (${loan.borrower_emp_id || '-'})\n` +
+      `  • กำหนดคืน: ${dueStr}${isOverdue ? ' *(เกินกำหนด)*' : ''}\n\n`;
+  });
+
+  return listText;
+};
+
+/**
  * help / ช่วยเหลือ / วิธีใช้ - command reference
  */
 const handleHelp = async () => {
@@ -196,6 +228,7 @@ const handleHelp = async () => {
     `• **check** / **เช็ค** / **ตรวจสอบ [ชื่ออุปกรณ์]** : ตรวจสอบสถานะของอุปกรณ์นั้นๆ เช่น *check ตึก 1 ชั้น 2* หรือ *เช็ค ตึก 1 ชั้น 2*\n` +
     `• **check** / **เช็ค [ชื่อจังหวัด]** : ตรวจสอบสถานะอุปกรณ์ทั้งหมดในจังหวัดนั้น เช่น *check อุบล* หรือ *ตรวจสอบ อุบล*\n` +
     `• **ip** / **ไอพี [ชื่ออุปกรณ์/จังหวัด]** : ตรวจสอบ Gateway, Sub IP, WAN IP ของสถานที่นั้นๆ เช่น *ip อุบล* หรือ *ไอพี อุบล*\n` +
+    `• **loans** / **ยืม** / **รายการยืม** : ดูรายการอุปกรณ์สำนักงานที่กำลังถูกยืมอยู่ (ยังไม่คืน)\n` +
     `• **help** / **ช่วยเหลือ** / **วิธีใช้** : แสดงรายการคำสั่งที่ใช้งานได้ทั้งหมด\n\n` +
     `พิมพ์ชื่อผมแล้วตามด้วยคำสั่งได้เลยครับ!`;
 };
@@ -210,6 +243,7 @@ const COMMANDS = [
   { keywords: ['check', 'เช็ค', 'ตรวจสอบ'], handler: handleCheck },
   { keywords: ['ip', 'ไอพี'], handler: handleIp },
   { keywords: ['devices', 'อุปกรณ์'], handler: handleDevices },
+  { keywords: ['loans', 'ยืม', 'รายการยืม'], handler: handleLoans },
   { keywords: ['help', 'ช่วยเหลือ', 'วิธีใช้'], handler: handleHelp }
 ];
 

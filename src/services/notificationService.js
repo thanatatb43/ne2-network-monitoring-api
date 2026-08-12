@@ -1,6 +1,72 @@
 const https = require('https');
 const { URL } = require('url');
-const { DeviceDowntime, DeviceMetrics } = require('../models');
+const { DeviceDowntime, DeviceMetrics, OfficeEquipmentLoan, OfficeEquipment } = require('../models');
+
+/**
+ * Raw POST of a MessageCard to TEAMS_WEBHOOK_URL. Shared by device up/down
+ * notifications and the daily overdue-equipment-loan digest.
+ */
+const postToTeamsWebhook = (messageCard, logLabel) => {
+  const rawWebhookUrl = process.env.TEAMS_WEBHOOK_URL;
+
+  if (!rawWebhookUrl) {
+    console.log('[NotificationService] TEAMS_WEBHOOK_URL not configured. Skipping notification.');
+    return Promise.resolve(false);
+  }
+
+  const webhookUrl = rawWebhookUrl.trim();
+
+  return new Promise((resolve) => {
+    try {
+      const url = new URL(webhookUrl);
+      const data = JSON.stringify(messageCard);
+
+      const options = {
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname + url.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data)
+        },
+        timeout: 15000,
+        rejectUnauthorized: false
+      };
+
+      const req = https.request(options, (res) => {
+        let body = '';
+        res.on('data', (d) => { body += d; });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            console.log(`[NotificationService] Notification accepted (Status ${res.statusCode})${logLabel ? ' for ' + logLabel : ''}`);
+            resolve(true);
+          } else {
+            console.error(`[NotificationService] Teams API returned error ${res.statusCode}: ${body}`);
+            resolve(false);
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error(`[NotificationService] Request error:`, error.message);
+        resolve(false);
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        console.error(`[NotificationService] Request timed out`);
+        resolve(false);
+      });
+
+      req.write(data);
+      req.end();
+    } catch (error) {
+      console.error(`[NotificationService] Internal error:`, error.message);
+      resolve(false);
+    }
+  });
+};
 
 /**
  * Helper to log downtime events to the database
@@ -57,14 +123,10 @@ const logDowntime = async (device, status) => {
  * Service to handle notifications to Microsoft Teams via Webhook or Power Automate
  */
 const sendTeamsNotification = async (device, status, previousStatus) => {
-  const rawWebhookUrl = process.env.TEAMS_WEBHOOK_URL;
-  
-  if (!rawWebhookUrl) {
+  if (!process.env.TEAMS_WEBHOOK_URL) {
     console.log('[NotificationService] TEAMS_WEBHOOK_URL not configured. Skipping notification.');
     return;
   }
-
-  const webhookUrl = rawWebhookUrl.trim();
 
   // Only send notification if status has changed
   if (status === previousStatus) {
@@ -123,56 +185,106 @@ const sendTeamsNotification = async (device, status, previousStatus) => {
     }]
   };
 
-  return new Promise((resolve) => {
-    try {
-      const url = new URL(webhookUrl);
-      const data = JSON.stringify(messageCard);
+  return postToTeamsWebhook(messageCard, `${device.pea_name}: ${status}`);
+};
 
-      const options = {
-        hostname: url.hostname,
-        port: url.port || 443,
-        path: url.pathname + url.search,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(data)
-        },
-        timeout: 15000,
-        rejectUnauthorized: false
-      };
+/**
+ * Daily digest of every OfficeEquipmentLoan that's past due_date and not yet
+ * returned. Sends nothing if there's nothing overdue (no noise on a clean day).
+ */
+const notifyOverdueEquipmentLoans = async () => {
+  try {
+    const { Op } = require('sequelize');
+    const now = new Date();
 
-      const req = https.request(options, (res) => {
-        let body = '';
-        res.on('data', (d) => { body += d; });
-        res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            console.log(`[NotificationService] Notification accepted (Status ${res.statusCode}) for ${device.pea_name}: ${status}`);
-            resolve(true);
-          } else {
-            console.error(`[NotificationService] Teams API returned error ${res.statusCode}: ${body}`);
-            resolve(false);
-          }
-        });
-      });
+    const overdue = await OfficeEquipmentLoan.findAll({
+      where: {
+        due_date: { [Op.lt]: now },
+        returned_at: null
+      },
+      include: [{ model: OfficeEquipment, as: 'equipment', attributes: ['name'] }],
+      order: [['due_date', 'ASC']]
+    });
 
-      req.on('error', (error) => {
-        console.error(`[NotificationService] Request error:`, error.message);
-        resolve(false);
-      });
-
-      req.on('timeout', () => {
-        req.destroy();
-        console.error(`[NotificationService] Request timed out`);
-        resolve(false);
-      });
-
-      req.write(data);
-      req.end();
-    } catch (error) {
-      console.error(`[NotificationService] Internal error:`, error.message);
-      resolve(false);
+    if (overdue.length === 0) {
+      console.log('[EquipmentLoan] No overdue equipment loans today.');
+      return;
     }
-  });
+
+    const facts = overdue.map(loan => {
+      const daysOverdue = Math.floor((now - new Date(loan.due_date)) / (1000 * 60 * 60 * 24));
+      const equipName = loan.equipment ? loan.equipment.name : `#${loan.equipment_id}`;
+      const dueStr = new Date(loan.due_date).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+      return {
+        "name": equipName,
+        "value": `ผู้ยืม: ${loan.borrower_name || 'ไม่ระบุ'} (${loan.borrower_emp_id || '-'}) | กำหนดคืน: ${dueStr} | เกิน ${daysOverdue} วัน`
+      };
+    });
+
+    const messageCard = {
+      "@type": "MessageCard",
+      "@context": "http://schema.org/extensions",
+      "themeColor": "FFA500",
+      "summary": `อุปกรณ์เกินกำหนดคืน ${overdue.length} รายการ`,
+      "sections": [{
+        "activityTitle": `⚠️ อุปกรณ์เกินกำหนดคืน (${overdue.length} รายการ)`,
+        "facts": facts,
+        "markdown": true
+      }]
+    };
+
+    await postToTeamsWebhook(messageCard, `overdue equipment digest (${overdue.length} items)`);
+  } catch (err) {
+    console.error('[EquipmentLoan] Failed to send overdue digest:', err);
+  }
+};
+
+/**
+ * Immediate Teams notification fired the moment equipment is borrowed or returned
+ * (scan action) - separate from and in addition to the daily overdue digest above.
+ */
+const notifyEquipmentLoanEvent = async (loan, equipment, eventType) => {
+  try {
+    const isBorrow = eventType === 'borrow';
+    const color = isBorrow ? 'FFA500' : '00FF00';
+    const emoji = isBorrow ? '📤' : '📥';
+    const title = isBorrow ? 'มีการยืมอุปกรณ์' : 'มีการคืนอุปกรณ์';
+    const equipName = equipment ? equipment.name : `#${loan.equipment_id}`;
+
+    const facts = [
+      { "name": "อุปกรณ์", "value": equipName },
+      { "name": "ผู้ยืม", "value": `${loan.borrower_name || 'ไม่ระบุ'} (${loan.borrower_emp_id || '-'})` }
+    ];
+
+    if (loan.borrower_contact) {
+      facts.push({ "name": "ติดต่อ", "value": loan.borrower_contact });
+    }
+
+    if (isBorrow) {
+      facts.push({ "name": "วันที่ยืม", "value": new Date(loan.borrowed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) });
+      if (loan.due_date) {
+        facts.push({ "name": "กำหนดคืน", "value": new Date(loan.due_date).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) });
+      }
+    } else {
+      facts.push({ "name": "วันที่คืน", "value": new Date(loan.returned_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) });
+    }
+
+    const messageCard = {
+      "@type": "MessageCard",
+      "@context": "http://schema.org/extensions",
+      "themeColor": color,
+      "summary": `${title}: ${equipName}`,
+      "sections": [{
+        "activityTitle": `${emoji} ${title}: **${equipName}**`,
+        "facts": facts,
+        "markdown": true
+      }]
+    };
+
+    await postToTeamsWebhook(messageCard, `${eventType} equipment #${loan.equipment_id}`);
+  } catch (err) {
+    console.error('[EquipmentLoan] Failed to send loan event notification:', err);
+  }
 };
 
 /**
@@ -210,5 +322,7 @@ const reconcileOrphanedDowntime = async () => {
 
 module.exports = {
   sendTeamsNotification,
-  reconcileOrphanedDowntime
+  reconcileOrphanedDowntime,
+  notifyOverdueEquipmentLoans,
+  notifyEquipmentLoanEvent
 };

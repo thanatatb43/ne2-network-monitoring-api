@@ -22,6 +22,9 @@ router.post('/register', authController.register);
 // POST /api/auth/logout
 router.post('/logout', authController.logout);
 
+// GET /api/auth/verify - check whether the current token is still valid
+router.get('/verify', verifyToken, authController.verify);
+
 // GET /api/auth/users (Super Admin only)
 router.get('/users', verifyToken, hasRole(['super_admin']), authController.getUsers);
 
