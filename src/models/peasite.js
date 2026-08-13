@@ -25,6 +25,10 @@ module.exports = (sequelize, DataTypes) => {
         notEmpty: true
       }
     },
+    pea_type: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
     latitude: {
       type: DataTypes.DECIMAL(10, 7),
       allowNull: true

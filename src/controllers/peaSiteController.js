@@ -14,7 +14,7 @@ const networkDeviceInclude = {
 const getAllSites = async (req, res, next) => {
   try {
     const sites = await PeaSite.findAll({
-      attributes: ['id', 'pea_name', 'pea_province', 'latitude', 'longitude'],
+      attributes: ['id', 'pea_name', 'pea_province', 'pea_type', 'latitude', 'longitude'],
       include: [networkDeviceInclude],
       order: [['pea_name', 'ASC']]
     });
@@ -71,13 +71,13 @@ const parseGoogleMapsCoordinates = (coordinates) => {
 // Create a new PEA site
 const createSite = async (req, res, next) => {
   try {
-    const { pea_name, pea_province, coordinates } = req.body;
+    const { pea_name, pea_province, pea_type, coordinates } = req.body;
 
     if (!pea_name || !pea_province) {
       return res.status(400).json({ success: false, message: 'pea_name and pea_province are required' });
     }
 
-    const data = { pea_name, pea_province };
+    const data = { pea_name, pea_province, pea_type: pea_type || null };
 
     if (coordinates !== undefined) {
       const parsed = parseGoogleMapsCoordinates(coordinates);
@@ -105,7 +105,7 @@ const createSite = async (req, res, next) => {
 const updateSite = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { pea_name, pea_province, coordinates } = req.body;
+    const { pea_name, pea_province, pea_type, coordinates } = req.body;
 
     const site = await PeaSite.findByPk(id);
     if (!site) {
@@ -115,6 +115,7 @@ const updateSite = async (req, res, next) => {
     const updateData = {};
     if (pea_name !== undefined && pea_name !== '') updateData.pea_name = pea_name;
     if (pea_province !== undefined && pea_province !== '') updateData.pea_province = pea_province;
+    if (pea_type !== undefined && pea_type !== '') updateData.pea_type = pea_type;
 
     if (coordinates !== undefined) {
       const parsed = parseGoogleMapsCoordinates(coordinates);

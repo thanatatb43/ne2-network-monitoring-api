@@ -7,6 +7,7 @@ const { OfficeEquipment, OfficeEquipmentAuditLog, OfficeEquipmentLoan, PeaSite, 
 const { notifyEquipmentLoanEvent } = require('../services/notificationService');
 
 const MAX_PHOTOS = 5;
+const ASSET_TRACKED_FIELDS = ['asset_number', 'asset_owner', 'asset_owner_emp_id'];
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -192,7 +193,7 @@ const getAllEquipment = async (req, res, next) => {
     const equipment = await OfficeEquipment.findAll({
       where,
       include: includeRelations,
-      order: [['name', 'ASC']]
+      order: [['updatedAt', 'DESC'], ['id', 'DESC']]
     });
 
     res.status(200).json({
@@ -394,9 +395,22 @@ const updateEquipment = async (req, res, next) => {
       }
     }
 
+    // Capture old -> new values for asset-ownership fields before they're overwritten,
+    // so the history endpoint can show who/what it changed from.
+    const assetChanges = {};
+    for (const field of ASSET_TRACKED_FIELDS) {
+      if (updateData[field] !== undefined) {
+        assetChanges[field] = { old: equipment[field], new: updateData[field] };
+      }
+    }
+
     await equipment.update(updateData);
 
     await logAudit(req, 'UPDATE', equipment, updateData);
+
+    if (Object.keys(assetChanges).length > 0) {
+      await logAudit(req, 'ASSET_INFO_CHANGE', equipment, assetChanges);
+    }
 
     res.status(200).json({
       success: true,
@@ -440,10 +454,24 @@ const deleteEquipment = async (req, res, next) => {
  * Generate a QR code image (PNG) encoding this equipment's id, for printing
  * onto a physical label. Scanning it and hitting /:id gives the full record.
  */
+const escapeXml = (str) => String(str)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&apos;');
+
+// Sites where equipment is physically held by the unit itself - only equipment
+// stored at one of these gets the full "ผคข.กดส.ฉ.2" prefix on its QR label;
+// everything else (out at a branch/site) gets the shorter "กดส.ฉ.2".
+const ON_UNIT_PREMISES_SITES = ['โรงเก็บของใต้บันใด ตึก 2', 'โรงเก็บของอาคาร กรย.', 'แผนกคอมพิวเตอร์และเครือข่าย'];
+
 const getEquipmentQrCode = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const equipment = await OfficeEquipment.findByPk(id);
+    const equipment = await OfficeEquipment.findByPk(id, {
+      include: [{ model: PeaSite, as: 'pea_site', attributes: ['pea_name'] }]
+    });
 
     if (!equipment) {
       return res.status(404).json({
@@ -453,12 +481,40 @@ const getEquipmentQrCode = async (req, res, next) => {
     }
 
     const qrContent = `${process.env.QR_CODE_URL}${equipment.id}`;
+    const qrSize = 300;
+    const qrBuffer = await QRCode.toBuffer(qrContent, { type: 'png', width: qrSize, margin: 2 });
 
-    const buffer = await QRCode.toBuffer(qrContent, {
-      type: 'png',
-      width: 300,
-      margin: 2
-    });
+    // Caption printed below the QR code so the physical label is self-explanatory
+    // without scanning it: unit name, equipment name, asset/serial info (if set), and its ID.
+    const PLACEHOLDER_NAME = 'อุปกรณ์ใหม่ (รอกรอกข้อมูล)';
+    const siteName = equipment.pea_site ? equipment.pea_site.pea_name : null;
+    const unitLabel = ON_UNIT_PREMISES_SITES.includes(siteName) ? 'ผคข.กดส.ฉ.2' : 'กดส.ฉ.2';
+    const labelLines = [unitLabel];
+    if (equipment.name !== PLACEHOLDER_NAME) labelLines.push(equipment.name);
+    if (equipment.asset_number) labelLines.push(`รหัสทรัพย์สิน: ${equipment.asset_number}`);
+    if (equipment.serial_number) labelLines.push(`SN: ${equipment.serial_number}`);
+    labelLines.push(`ID: ${equipment.id}`);
+    const lineHeight = 26;
+    const padding = 12;
+    const textAreaHeight = labelLines.length * lineHeight + padding * 2;
+    const canvasHeight = qrSize + textAreaHeight;
+
+    const textSvg = `
+      <svg width="${qrSize}" height="${textAreaHeight}" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100%" height="100%" fill="white"/>
+        ${labelLines.map((line, i) => `<text x="50%" y="${padding + lineHeight * (i + 1) - 8}" font-family="Tahoma, Leelawadee UI, sans-serif" font-size="18" fill="black" text-anchor="middle">${escapeXml(line)}</text>`).join('')}
+      </svg>
+    `;
+
+    const buffer = await sharp({
+      create: { width: qrSize, height: canvasHeight, channels: 4, background: 'white' }
+    })
+      .composite([
+        { input: qrBuffer, top: 0, left: 0 },
+        { input: Buffer.from(textSvg), top: qrSize, left: 0 }
+      ])
+      .png()
+      .toBuffer();
 
     res.set('Content-Type', 'image/png');
     res.send(buffer);
@@ -595,6 +651,29 @@ const getEquipmentLoanHistory = async (req, res, next) => {
 };
 
 /**
+ * Get the full audit/change history for a piece of equipment (create, update,
+ * delete, borrow, return, asset-info changes, etc.), newest first.
+ */
+const getEquipmentHistory = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const logs = await OfficeEquipmentAuditLog.findAll({
+      where: { equipment_id: id },
+      order: [['createdAt', 'DESC']]
+    });
+
+    res.status(200).json({
+      success: true,
+      count: logs.length,
+      data: logs
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Upload up to MAX_PHOTOS (5) equipment photos total. Adds to whatever photos
  * already exist rather than replacing them.
  */
@@ -721,6 +800,7 @@ module.exports = {
   borrowEquipment,
   returnEquipment,
   getEquipmentLoanHistory,
+  getEquipmentHistory,
   uploadEquipmentPhotos,
   deleteEquipmentPhoto,
   uploadStorageLocationPhoto
