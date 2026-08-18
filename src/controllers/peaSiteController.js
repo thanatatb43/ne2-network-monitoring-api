@@ -1,4 +1,4 @@
-const { PeaSite, NetworkDevices, DeviceMetrics, OfficeEquipment, PeaJob } = require('../models');
+const { PeaSite, NetworkDevices, DeviceMetrics, OfficeEquipment, PeaJob, Sequelize } = require('../models');
 
 // Include the linked network device plus its latest status, shared by the list and single-site reads
 const networkDeviceInclude = {
@@ -23,6 +23,43 @@ const getAllSites = async (req, res, next) => {
       success: true,
       data: sites
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get all PEA sites along with how many PeaJobs and OfficeEquipment items belong to each
+const getSitesWithCounts = async (req, res, next) => {
+  try {
+    const sites = await PeaSite.findAll({
+      attributes: ['id', 'pea_name', 'pea_province', 'pea_type'],
+      order: [['id', 'ASC']],
+      raw: true
+    });
+
+    const [jobCounts, equipmentCounts] = await Promise.all([
+      PeaJob.findAll({
+        attributes: ['pea_site_id', [Sequelize.fn('COUNT', Sequelize.col('id')), 'count']],
+        group: ['pea_site_id'],
+        raw: true
+      }),
+      OfficeEquipment.findAll({
+        attributes: ['pea_site_id', [Sequelize.fn('COUNT', Sequelize.col('id')), 'count']],
+        group: ['pea_site_id'],
+        raw: true
+      })
+    ]);
+
+    const jobCountMap = Object.fromEntries(jobCounts.map(j => [j.pea_site_id, parseInt(j.count)]));
+    const equipmentCountMap = Object.fromEntries(equipmentCounts.map(e => [e.pea_site_id, parseInt(e.count)]));
+
+    const data = sites.map(site => ({
+      ...site,
+      job_count: jobCountMap[site.id] || 0,
+      equipment_count: equipmentCountMap[site.id] || 0
+    }));
+
+    res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -172,6 +209,7 @@ const deleteSite = async (req, res, next) => {
 
 module.exports = {
   getAllSites,
+  getSitesWithCounts,
   getSiteById,
   createSite,
   updateSite,

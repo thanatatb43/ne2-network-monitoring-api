@@ -37,6 +37,7 @@ const uploadPhoto = multer({
 // Public read routes
 router.get('/', officeEquipmentController.getAllEquipment);
 router.get('/site/:pea_site_id', officeEquipmentController.getEquipmentBySite);
+router.get('/loans', officeEquipmentController.getAllLoans);
 router.get('/:id/qrcode', officeEquipmentController.getEquipmentQrCode);
 router.get('/:id/loans', officeEquipmentController.getEquipmentLoanHistory);
 router.get('/:id/history', officeEquipmentController.getEquipmentHistory);
@@ -51,6 +52,7 @@ router.delete('/:id', hasRole(['super_admin', 'computer_admin', 'network_admin']
 
 // Borrow/return: any authenticated user (scan action, not admin-restricted)
 router.post('/:id/borrow', officeEquipmentController.borrowEquipment);
+router.post('/borrow-batch', officeEquipmentController.borrowEquipmentBatch);
 router.post('/:id/return', officeEquipmentController.returnEquipment);
 
 // Photo uploads (max 5 total, 5MB each) and the single storage-location photo (5MB)

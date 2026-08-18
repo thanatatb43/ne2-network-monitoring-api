@@ -4372,3 +4372,24 @@
   "hmacMatch": true
 }
 ---
+{
+  "timestamp": "2026-08-18T07:10:03.437Z",
+  "headers": {
+    "content-type": "application/json",
+    "content-length": "20",
+    "authorization": "HMAC Wul8kdTL4+YKHMOc4FHSuQ+YGmAEljOPqEvPAUUPkIk=",
+    "host": "localhost:3000",
+    "connection": "keep-alive"
+  },
+  "body": {
+    "text": "ยืม"
+  },
+  "rawBodyLength": 20,
+  "rawBodyString": "{\"text\":\"ยืม\"}",
+  "teamsTokenConfigured": true,
+  "teamsTokenLength": 44,
+  "expectedHmac": "Wul8kdTL4+YKHMOc4FHSuQ+YGmAEljOPqEvPAUUPkIk=",
+  "receivedHmac": "Wul8kdTL4+YKHMOc4FHSuQ+YGmAEljOPqEvPAUUPkIk=",
+  "hmacMatch": true
+}
+---

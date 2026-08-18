@@ -9,7 +9,6 @@ const { verifyToken, hasRole } = require('../middleware/authMiddleware');
 router.get('/', peaJobController.getAllJobs);
 router.get('/sites', peaJobController.getPeaSitesLookup);
 router.get('/:id', peaJobController.getJobById);
-router.get('/site/:pea_site_id', peaJobController.getJobsBySite);
 router.get('/site/:pea_site_id/transactions', peaJobController.getTransactionsBySite);
 
 // Protected routes (require token and specific roles)
@@ -19,5 +18,7 @@ router.post('/', verifyToken, hasRole(allowedRoles), peaJobController.createJob)
 router.post('/transactions', verifyToken, hasRole(allowedRoles), peaJobController.addTransactionsToSite);
 router.put('/:id', verifyToken, hasRole(allowedRoles), peaJobController.updateJob);
 router.delete('/:id', verifyToken, hasRole(allowedRoles), peaJobController.deleteJob);
+router.post('/:id/equipment', verifyToken, hasRole(allowedRoles), peaJobController.addEquipmentToJob);
+router.delete('/:id/equipment/:equipment_id', verifyToken, hasRole(allowedRoles), peaJobController.removeEquipmentFromJob);
 
 module.exports = router;

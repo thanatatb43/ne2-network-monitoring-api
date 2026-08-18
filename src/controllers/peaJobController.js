@@ -1,31 +1,48 @@
-const { PeaJob, PeaSite, SiteBudgetTransaction, BudgetTransaction } = require('../models');
+const { PeaJob, PeaSite, SiteBudgetTransaction, BudgetTransaction, OfficeEquipment, PeaJobEquipment } = require('../models');
 
-// Get all jobs
+const equipmentInclude = { model: OfficeEquipment, as: 'equipment', attributes: ['id', 'name', 'asset_number', 'status'], through: { attributes: [] } };
+
+// Get all jobs, paginated. Optionally filtered by pea_site_id - applied server-side
+// BEFORE pagination, so filtered results are always complete (a client-side filter
+// on top of a paginated fetch would miss matches sitting on pages not yet loaded).
 const getAllJobs = async (req, res, next) => {
   try {
-    const jobs = await PeaJob.findAll({
+    const { Op } = require('sequelize');
+    const { pea_site_id, search } = req.query;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.max(parseInt(req.query.limit) || 20, 1);
+    const offset = (page - 1) * limit;
+
+    const where = {};
+    if (pea_site_id) where.pea_site_id = pea_site_id;
+    if (search) {
+      where[Op.or] = ['job_name', 'job_description']
+        .map(field => ({ [field]: { [Op.substring]: search } }));
+    }
+
+    const { count, rows } = await PeaJob.findAndCountAll({
+      where,
       include: [
         { model: PeaSite, as: 'pea_site' },
-        { model: SiteBudgetTransaction, as: 'transactions' }
-      ]
+        { model: SiteBudgetTransaction, as: 'transactions' },
+        equipmentInclude
+      ],
+      order: [['updatedAt', 'DESC'], ['id', 'DESC']],
+      limit,
+      offset,
+      distinct: true // avoid inflated count from the hasMany/belongsToMany joins above
     });
-    res.status(200).json({ success: true, data: jobs });
-  } catch (error) {
-    next(error);
-  }
-};
 
-// Get jobs by pea_site_id
-const getJobsBySite = async (req, res, next) => {
-  try {
-    const { pea_site_id } = req.params;
-    const jobs = await PeaJob.findAll({
-      where: { pea_site_id },
-      include: [
-        { model: SiteBudgetTransaction, as: 'transactions' }
-      ]
+    res.status(200).json({
+      success: true,
+      data: rows,
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit)
+      }
     });
-    res.status(200).json({ success: true, data: jobs });
   } catch (error) {
     next(error);
   }
@@ -34,10 +51,20 @@ const getJobsBySite = async (req, res, next) => {
 // Create job and insert budget transactions
 const createJob = async (req, res, next) => {
   try {
-    const { pea_site_id, job_name, job_description, budget_transaction_ids } = req.body;
+    const { pea_site_id, job_name, job_description, budget_transaction_ids, equipment_ids } = req.body;
 
     if (!pea_site_id || !job_name) {
       return res.status(400).json({ success: false, message: 'pea_site_id and job_name are required' });
+    }
+
+    // Validate equipment_ids up front (before creating anything) so a bad ID doesn't
+    // leave a job created with only some of what was requested.
+    let equipmentToLink = [];
+    if (equipment_ids && Array.isArray(equipment_ids) && equipment_ids.length > 0) {
+      equipmentToLink = await OfficeEquipment.findAll({ where: { id: equipment_ids } });
+      if (equipmentToLink.length !== equipment_ids.length) {
+        return res.status(404).json({ success: false, message: 'One or more equipment IDs were not found' });
+      }
     }
 
     // Check for duplicate job (same site and name)
@@ -119,11 +146,19 @@ const createJob = async (req, res, next) => {
       insertedCount++;
     }
 
-    res.status(201).json({ 
-      success: true, 
+    // 4. Link any requested equipment (many-to-many)
+    if (equipmentToLink.length > 0) {
+      await PeaJobEquipment.bulkCreate(
+        equipmentToLink.map(eq => ({ pea_job_id: newJob.id, equipment_id: eq.id }))
+      );
+    }
+
+    res.status(201).json({
+      success: true,
       message: 'Job created successfully',
       data: newJob,
-      transactions_inserted: insertedCount
+      transactions_inserted: insertedCount,
+      equipment_linked: equipmentToLink.length
     });
 
   } catch (error) {
@@ -297,7 +332,8 @@ const getJobById = async (req, res, next) => {
     const job = await PeaJob.findByPk(id, {
       include: [
         { model: PeaSite, as: 'pea_site' },
-        { model: SiteBudgetTransaction, as: 'transactions' }
+        { model: SiteBudgetTransaction, as: 'transactions' },
+        equipmentInclude
       ]
     });
 
@@ -309,6 +345,69 @@ const getJobById = async (req, res, next) => {
       success: true,
       data: job
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Link one or more OfficeEquipment items to a job (many-to-many - the same
+// equipment can be linked to multiple jobs over its lifetime, e.g. reused
+// across different jobs at different times).
+const addEquipmentToJob = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { equipment_ids } = req.body;
+
+    if (!equipment_ids || !Array.isArray(equipment_ids) || equipment_ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'equipment_ids (non-empty array) is required' });
+    }
+
+    const job = await PeaJob.findByPk(id);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    const equipmentList = await OfficeEquipment.findAll({ where: { id: equipment_ids } });
+    if (equipmentList.length !== equipment_ids.length) {
+      return res.status(404).json({ success: false, message: 'One or more equipment IDs were not found' });
+    }
+
+    const existingLinks = await PeaJobEquipment.findAll({
+      where: { pea_job_id: id, equipment_id: equipment_ids }
+    });
+    const alreadyLinkedIds = new Set(existingLinks.map(l => l.equipment_id));
+
+    const toCreate = equipment_ids
+      .filter(eqId => !alreadyLinkedIds.has(eqId))
+      .map(eqId => ({ pea_job_id: id, equipment_id: eqId }));
+
+    const created = await PeaJobEquipment.bulkCreate(toCreate);
+
+    res.status(201).json({
+      success: true,
+      message: `Linked ${created.length} equipment item(s) to the job`,
+      already_linked: [...alreadyLinkedIds],
+      data: created
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Unlink one piece of equipment from a job
+const removeEquipmentFromJob = async (req, res, next) => {
+  try {
+    const { id, equipment_id } = req.params;
+
+    const deleted = await PeaJobEquipment.destroy({
+      where: { pea_job_id: id, equipment_id }
+    });
+
+    if (deleted === 0) {
+      return res.status(404).json({ success: false, message: 'This equipment is not linked to this job' });
+    }
+
+    res.status(200).json({ success: true, message: 'Equipment unlinked from job successfully' });
   } catch (error) {
     next(error);
   }
@@ -333,12 +432,13 @@ const getPeaSitesLookup = async (req, res, next) => {
 
 module.exports = {
   getAllJobs,
-  getJobsBySite,
   createJob,
   updateJob,
   deleteJob,
   addTransactionsToSite,
   getTransactionsBySite,
   getJobById,
+  addEquipmentToJob,
+  removeEquipmentFromJob,
   getPeaSitesLookup
 };

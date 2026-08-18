@@ -15,6 +15,7 @@ const budgetRoutes = require('./budgetRoutes');
 const peaJobRoutes = require('./peaJobRoutes');
 const officeEquipmentRoutes = require('./officeEquipmentRoutes');
 const peaSiteRoutes = require('./peaSiteRoutes');
+const privateRoutes = require('./privateRoutes');
 
 router.use('/devices', networkDeviceRoutes);
 router.use('/latency', latencyRoutes);
@@ -27,5 +28,6 @@ router.use('/budgets', budgetRoutes);
 router.use('/pea-jobs', peaJobRoutes);
 router.use('/office-equipment', officeEquipmentRoutes);
 router.use('/pea-sites', peaSiteRoutes);
+router.use('/private', privateRoutes);
 
 module.exports = router;

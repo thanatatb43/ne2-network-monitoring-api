@@ -186,7 +186,9 @@ const handleDevices = async () => {
 };
 
 /**
- * loans / ยืม / รายการยืม - list all office equipment currently borrowed (not yet returned)
+ * loans / ยืม / รายการยืม - list all office equipment currently borrowed (not yet
+ * returned), grouped by batch_id so items borrowed together in one action (e.g.
+ * a laptop + a projector for one event) show as a single entry instead of separate lines.
  */
 const handleLoans = async () => {
   const openLoans = await OfficeEquipmentLoan.findAll({
@@ -200,17 +202,30 @@ const handleLoans = async () => {
   }
 
   const now = new Date();
-  let listText = `📋 **รายการอุปกรณ์ที่กำลังถูกยืม (${openLoans.length} รายการ)**\n\n`;
 
+  const batches = [];
+  const batchIndexByKey = {};
   openLoans.forEach(loan => {
-    const equipName = loan.equipment ? loan.equipment.name : `#${loan.equipment_id}`;
-    const isOverdue = loan.due_date && new Date(loan.due_date) < now;
-    const dueStr = loan.due_date
-      ? new Date(loan.due_date).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })
+    const key = loan.batch_id || `loan-${loan.id}`; // fallback for any pre-batch_id legacy rows
+    if (!(key in batchIndexByKey)) {
+      batchIndexByKey[key] = batches.length;
+      batches.push([]);
+    }
+    batches[batchIndexByKey[key]].push(loan);
+  });
+
+  let listText = `📋 **รายการอุปกรณ์ที่กำลังถูกยืม (${openLoans.length} รายการ, ${batches.length} ครั้งที่ยืม)**\n\n`;
+
+  batches.forEach(group => {
+    const first = group[0];
+    const equipNames = group.map(l => l.equipment ? l.equipment.name : `#${l.equipment_id}`).join(', ');
+    const isOverdue = first.due_date && new Date(first.due_date) < now;
+    const dueStr = first.due_date
+      ? new Date(first.due_date).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })
       : 'ไม่ระบุ';
 
-    listText += `${isOverdue ? '⚠️' : '📦'} **${equipName}**\n` +
-      `  • ผู้ยืม: ${loan.borrower_name || 'ไม่ระบุ'} (${loan.borrower_emp_id || '-'})\n` +
+    listText += `${isOverdue ? '⚠️' : '📦'} **${equipNames}**\n` +
+      `  • ผู้ยืม: ${first.borrower_name || 'ไม่ระบุ'} (${first.borrower_emp_id || '-'})\n` +
       `  • กำหนดคืน: ${dueStr}${isOverdue ? ' *(เกินกำหนด)*' : ''}\n\n`;
   });
 

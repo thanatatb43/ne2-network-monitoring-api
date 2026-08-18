@@ -288,6 +288,60 @@ const notifyEquipmentLoanEvent = async (loan, equipment, eventType) => {
 };
 
 /**
+ * Same as notifyEquipmentLoanEvent, but for a whole borrow-batch at once (borrowing
+ * several equipment items in one action) - one consolidated Teams message listing
+ * every item, instead of spamming one message per item.
+ */
+const notifyEquipmentLoanBatchEvent = async (loans, equipmentList, eventType) => {
+  try {
+    if (!loans || loans.length === 0) return;
+
+    const isBorrow = eventType === 'borrow';
+    const color = isBorrow ? 'FFA500' : '00FF00';
+    const emoji = isBorrow ? '📤' : '📥';
+    const title = isBorrow ? 'มีการยืมอุปกรณ์ (หลายรายการ)' : 'มีการคืนอุปกรณ์ (หลายรายการ)';
+    const firstLoan = loans[0];
+
+    const equipmentNameById = Object.fromEntries((equipmentList || []).map(e => [e.id, e.name]));
+    const itemNames = loans.map(l => equipmentNameById[l.equipment_id] || `#${l.equipment_id}`).join(', ');
+
+    const facts = [
+      { "name": `อุปกรณ์ (${loans.length} รายการ)`, "value": itemNames },
+      { "name": "ผู้ยืม", "value": `${firstLoan.borrower_name || 'ไม่ระบุ'} (${firstLoan.borrower_emp_id || '-'})` }
+    ];
+
+    if (firstLoan.borrower_contact) {
+      facts.push({ "name": "ติดต่อ", "value": firstLoan.borrower_contact });
+    }
+
+    if (isBorrow) {
+      facts.push({ "name": "วันที่ยืม", "value": new Date(firstLoan.borrowed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) });
+      if (firstLoan.due_date) {
+        facts.push({ "name": "กำหนดคืน", "value": new Date(firstLoan.due_date).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) });
+      }
+    } else {
+      facts.push({ "name": "วันที่คืน", "value": new Date(firstLoan.returned_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) });
+    }
+
+    const messageCard = {
+      "@type": "MessageCard",
+      "@context": "http://schema.org/extensions",
+      "themeColor": color,
+      "summary": `${title}: ${loans.length} รายการ`,
+      "sections": [{
+        "activityTitle": `${emoji} ${title}`,
+        "facts": facts,
+        "markdown": true
+      }]
+    };
+
+    await postToTeamsWebhook(messageCard, `${eventType} batch of ${loans.length} equipment`);
+  } catch (err) {
+    console.error('[EquipmentLoan] Failed to send batch loan event notification:', err);
+  }
+};
+
+/**
  * Self-healing check, meant to run once on server startup: closes any DeviceDowntime
  * record left open (up_at: null) whose device's latest DeviceMetrics already shows
  * it's back up. This can happen if the process was killed/restarted mid-flight while
@@ -324,5 +378,6 @@ module.exports = {
   sendTeamsNotification,
   reconcileOrphanedDowntime,
   notifyOverdueEquipmentLoans,
-  notifyEquipmentLoanEvent
+  notifyEquipmentLoanEvent,
+  notifyEquipmentLoanBatchEvent
 };

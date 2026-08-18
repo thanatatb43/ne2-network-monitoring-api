@@ -5,6 +5,7 @@ const { verifyToken, hasRole } = require('../middleware/authMiddleware');
 
 // Read: open to everyone (no login required), matching the existing convention for lookup-style endpoints
 router.get('/', peaSiteController.getAllSites);
+router.get('/summary', peaSiteController.getSitesWithCounts);
 router.get('/:id', peaSiteController.getSiteById);
 
 // Write: super_admin only

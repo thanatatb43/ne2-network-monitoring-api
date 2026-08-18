@@ -18,6 +18,14 @@ module.exports = (sequelize, DataTypes) => {
           foreignKey: 'equipment_id',
           as: 'loans'
         });
+
+        // The single currently-open loan (if any) - lets equipment listings show
+        // who has it out right now without a separate lookup.
+        models.OfficeEquipment.hasOne(OfficeEquipmentLoan, {
+          foreignKey: 'equipment_id',
+          as: 'current_loan',
+          scope: { returned_at: null }
+        });
       }
     }
   }
@@ -63,6 +71,13 @@ module.exports = (sequelize, DataTypes) => {
     notes: {
       type: DataTypes.TEXT,
       allowNull: true
+    },
+    // Groups loans created in the same borrow action together (e.g. borrowing a
+    // laptop + a projector for one event) - every loan gets one, even single-item
+    // borrows (a "batch of one"), so grouped-display logic works uniformly.
+    batch_id: {
+      type: DataTypes.STRING,
+      allowNull: true
     }
   }, {
     sequelize,
@@ -71,7 +86,8 @@ module.exports = (sequelize, DataTypes) => {
     timestamps: true,
     indexes: [
       { fields: ['equipment_id'] },
-      { fields: ['borrowed_by_user_id'] }
+      { fields: ['borrowed_by_user_id'] },
+      { fields: ['batch_id'] }
     ]
   });
 

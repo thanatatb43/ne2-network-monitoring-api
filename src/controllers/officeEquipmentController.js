@@ -1,10 +1,11 @@
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const sharp = require('sharp');
 const QRCode = require('qrcode');
-const { OfficeEquipment, OfficeEquipmentAuditLog, OfficeEquipmentLoan, PeaSite, User, NetworkDevices } = require('../models');
-const { notifyEquipmentLoanEvent } = require('../services/notificationService');
+const { OfficeEquipment, OfficeEquipmentAuditLog, OfficeEquipmentLoan, PeaSite, User, NetworkDevices, PeaJob } = require('../models');
+const { notifyEquipmentLoanEvent, notifyEquipmentLoanBatchEvent } = require('../services/notificationService');
 
 const MAX_PHOTOS = 5;
 const ASSET_TRACKED_FIELDS = ['asset_number', 'asset_owner', 'asset_owner_emp_id'];
@@ -86,7 +87,16 @@ const includeRelations = [
       { model: NetworkDevices, as: 'network_device', attributes: ['gateway', 'sub_ip1_gateway', 'sub_ip2_gateway', 'dhcp'] }
     ]
   },
-  { model: User, as: 'created_by', attributes: ['id', 'username', 'first_name', 'last_name'] }
+  { model: User, as: 'created_by', attributes: ['id', 'username', 'first_name', 'last_name'] },
+  { model: PeaJob, as: 'jobs', attributes: ['id', 'job_name'], through: { attributes: [] } },
+  {
+    model: OfficeEquipmentLoan,
+    as: 'current_loan',
+    attributes: ['id', 'batch_id', 'borrower_name', 'borrower_emp_id', 'borrower_contact', 'borrowed_at', 'due_date'],
+    include: [
+      { model: User, as: 'borrowed_by', attributes: ['id', 'username', 'first_name', 'last_name'] }
+    ]
+  }
 ];
 
 // Some IP fields use "-" as a placeholder for "not set" instead of null/empty string
@@ -153,14 +163,15 @@ const logAudit = async (req, action, equipment, data) => {
 };
 
 /**
- * Check for duplicate ip_address / mac_address across office equipment
- * @param {Object} data - Data to check (ip_address, mac_address)
+ * Check for duplicate ip_address / mac_address / serial_number across office equipment
+ * @param {Object} data - Data to check (ip_address, mac_address, serial_number)
  * @param {number|null} excludeId - ID to exclude (for updates)
- * @returns {Promise<string|null>} - Returns the name of the field that is duplicate, or null
+ * @returns {Promise<{field: string, equipment_name: string, pea_site_name: string|null}|null>}
+ *   Details of the conflicting record, or null if no duplicate
  */
 const checkDuplicates = async (data, excludeId = null) => {
   const { Op } = require('sequelize');
-  const uniqueFields = ['ip_address', 'mac_address'];
+  const uniqueFields = ['ip_address', 'mac_address', 'serial_number'];
 
   for (const field of uniqueFields) {
     const value = data[field];
@@ -170,9 +181,16 @@ const checkDuplicates = async (data, excludeId = null) => {
         where.id = { [Op.ne]: excludeId };
       }
 
-      const existing = await OfficeEquipment.findOne({ where });
+      const existing = await OfficeEquipment.findOne({
+        where,
+        include: [{ model: PeaSite, as: 'pea_site', attributes: ['pea_name'] }]
+      });
       if (existing) {
-        return field;
+        return {
+          field,
+          equipment_name: existing.name,
+          pea_site_name: existing.pea_site ? existing.pea_site.pea_name : null
+        };
       }
     }
   }
@@ -180,26 +198,53 @@ const checkDuplicates = async (data, excludeId = null) => {
 };
 
 /**
- * Get all office equipment (optionally filtered by department, pea_site_id, status)
+ * Get all office equipment, paginated. Optionally filtered by department,
+ * equipment_type, pea_site_id, status, and searched by text - applied server-side
+ * BEFORE pagination, so filtered results are always complete regardless of which
+ * page they'd fall on unfiltered.
  */
 const getAllEquipment = async (req, res, next) => {
   try {
-    const { department, pea_site_id, status } = req.query;
+    const { Op } = require('sequelize');
+    const { department, equipment_type, pea_site_id, exclude_pea_site_id, status, search } = req.query;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.max(parseInt(req.query.limit) || 20, 1);
+    const offset = (page - 1) * limit;
+
     const where = {};
     if (department) where.department = department;
+    if (equipment_type) where.equipment_type = equipment_type;
     if (pea_site_id) where.pea_site_id = pea_site_id;
+    if (exclude_pea_site_id) {
+      where.pea_site_id = {
+        [Op.notIn]: String(exclude_pea_site_id).split(',').map(id => id.trim()).filter(Boolean)
+      };
+    }
     if (status) where.status = status;
+    if (search) {
+      where[Op.or] = ['name', 'asset_number', 'serial_number', 'ip_address', 'mac_address']
+        .map(field => ({ [field]: { [Op.substring]: search } }));
+    }
 
-    const equipment = await OfficeEquipment.findAll({
+    const { count, rows } = await OfficeEquipment.findAndCountAll({
       where,
       include: includeRelations,
-      order: [['updatedAt', 'DESC'], ['id', 'DESC']]
+      order: [['updatedAt', 'DESC'], ['id', 'DESC']],
+      limit,
+      offset,
+      distinct: true // avoid inflated count from the belongsToMany 'jobs' include
     });
 
     res.status(200).json({
       success: true,
-      count: equipment.length,
-      data: equipment.map(attachNetworkIp)
+      count: rows.length,
+      data: rows.map(attachNetworkIp),
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit)
+      }
     });
   } catch (error) {
     next(error);
@@ -287,11 +332,11 @@ const createEquipment = async (req, res, next) => {
       });
     }
 
-    const duplicateField = await checkDuplicates({ ip_address, mac_address });
-    if (duplicateField) {
+    const duplicate = await checkDuplicates({ ip_address, mac_address, serial_number: otherData.serial_number });
+    if (duplicate) {
       return res.status(400).json({
         success: false,
-        message: `Office equipment with this ${duplicateField} already exists`
+        message: `ตรวจพบอุปกรณ์ที่มี ${duplicate.field} นี้ (ชื่อ: "${duplicate.equipment_name}", สำนักงาน: "${duplicate.pea_site_name || 'ไม่ระบุ'}")`
       });
     }
 
@@ -382,15 +427,15 @@ const updateEquipment = async (req, res, next) => {
       });
     }
 
-    if (updateData.ip_address || updateData.mac_address) {
-      const duplicateField = await checkDuplicates(
-        { ip_address: updateData.ip_address, mac_address: updateData.mac_address },
+    if (updateData.ip_address || updateData.mac_address || updateData.serial_number) {
+      const duplicate = await checkDuplicates(
+        { ip_address: updateData.ip_address, mac_address: updateData.mac_address, serial_number: updateData.serial_number },
         id
       );
-      if (duplicateField) {
+      if (duplicate) {
         return res.status(400).json({
           success: false,
-          message: `Office equipment with this ${duplicateField} already exists`
+          message: `ตรวจพบอุปกรณ์ที่มี ${duplicate.field} นี้ (ชื่อ: "${duplicate.equipment_name}", สำนักงาน: "${duplicate.pea_site_name || 'ไม่ระบุ'}")`
         });
       }
     }
@@ -560,7 +605,8 @@ const borrowEquipment = async (req, res, next) => {
       borrower_contact: borrower_contact || null,
       borrowed_at: new Date(),
       due_date: due_date || null,
-      notes: notes || null
+      notes: notes || null,
+      batch_id: crypto.randomUUID() // a "batch of one" - keeps grouped-display logic uniform
     });
 
     await equipment.update({ status: 'ถูกยืม' });
@@ -574,6 +620,83 @@ const borrowEquipment = async (req, res, next) => {
       success: true,
       message: 'Equipment marked as borrowed',
       data: loan
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Borrow several pieces of equipment in one action (e.g. a laptop + a projector for
+ * one event) - one borrower payload, one batch_id shared across every resulting loan
+ * row, so they can be displayed/grouped together as a single borrowing event. All-or-
+ * nothing: if any equipment ID is invalid or already borrowed, nothing is created.
+ */
+const borrowEquipmentBatch = async (req, res, next) => {
+  try {
+    const { equipment_ids, due_date, notes, borrower_name, borrower_emp_id, borrower_contact } = req.body;
+
+    if (!borrower_name) {
+      return res.status(400).json({ success: false, message: 'borrower_name is required' });
+    }
+    if (!equipment_ids || !Array.isArray(equipment_ids) || equipment_ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'equipment_ids (non-empty array) is required' });
+    }
+
+    const equipmentList = await OfficeEquipment.findAll({ where: { id: equipment_ids } });
+    if (equipmentList.length !== equipment_ids.length) {
+      return res.status(404).json({ success: false, message: 'One or more equipment IDs were not found' });
+    }
+
+    const alreadyBorrowed = await OfficeEquipmentLoan.findAll({
+      where: { equipment_id: equipment_ids, returned_at: null }
+    });
+    if (alreadyBorrowed.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'One or more equipment items are already borrowed and have not been returned yet',
+        equipment_ids: alreadyBorrowed.map(l => l.equipment_id)
+      });
+    }
+
+    const batchId = crypto.randomUUID();
+    const borrowedAt = new Date();
+
+    await OfficeEquipmentLoan.bulkCreate(
+      equipmentList.map(equipment => ({
+        equipment_id: equipment.id,
+        borrowed_by_user_id: req.user ? req.user.id : null,
+        borrower_name,
+        borrower_emp_id: borrower_emp_id || null,
+        borrower_contact: borrower_contact || null,
+        borrowed_at: borrowedAt,
+        due_date: due_date || null,
+        notes: notes || null,
+        batch_id: batchId
+      }))
+    );
+
+    // Re-fetch rather than trust bulkCreate's return value - MySQL doesn't
+    // support RETURNING, so per-row ids aren't reliably populated otherwise.
+    const loans = await OfficeEquipmentLoan.findAll({ where: { batch_id: batchId } });
+
+    await OfficeEquipment.update(
+      { status: 'ถูกยืม' },
+      { where: { id: equipment_ids } }
+    );
+
+    for (const equipment of equipmentList) {
+      await logAudit(req, 'BORROW', equipment, { batch_id: batchId, borrower_name, due_date: due_date || null });
+    }
+
+    // Fire-and-forget: one consolidated Teams message for the whole batch, not one per item
+    notifyEquipmentLoanBatchEvent(loans, equipmentList, 'borrow');
+
+    res.status(201).json({
+      success: true,
+      message: `${loans.length} equipment item(s) marked as borrowed`,
+      batch_id: batchId,
+      data: loans
     });
   } catch (error) {
     next(error);
@@ -644,6 +767,63 @@ const getEquipmentLoanHistory = async (req, res, next) => {
       success: true,
       count: loans.length,
       data: loans
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Full loan history across ALL equipment, paginated - each row carries its batch_id
+ * so items borrowed together in one action (POST /borrow-batch) stay grouped/adjacent
+ * (rows in the same batch share the same borrowed_at, so ordering by borrowed_at keeps
+ * them next to each other). Optionally filtered by status (open/returned), equipment_id,
+ * pea_site_id (of the equipment), or a borrower_name/emp_id search.
+ */
+const getAllLoans = async (req, res, next) => {
+  try {
+    const { Op } = require('sequelize');
+    const { status, equipment_id, pea_site_id, search } = req.query;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.max(parseInt(req.query.limit) || 20, 1);
+    const offset = (page - 1) * limit;
+
+    const where = {};
+    if (status === 'open') where.returned_at = null;
+    if (status === 'returned') where.returned_at = { [Op.ne]: null };
+    if (equipment_id) where.equipment_id = equipment_id;
+    if (search) {
+      where[Op.or] = ['borrower_name', 'borrower_emp_id', 'borrower_contact']
+        .map(field => ({ [field]: { [Op.substring]: search } }));
+    }
+
+    const equipmentInclude = {
+      model: OfficeEquipment,
+      as: 'equipment',
+      attributes: ['id', 'name', 'asset_number', 'pea_site_id']
+    };
+    if (pea_site_id) equipmentInclude.where = { pea_site_id };
+
+    const { count, rows } = await OfficeEquipmentLoan.findAndCountAll({
+      where,
+      include: [
+        equipmentInclude,
+        { model: User, as: 'borrowed_by', attributes: ['id', 'username', 'first_name', 'last_name'] }
+      ],
+      order: [['borrowed_at', 'DESC'], ['id', 'DESC']],
+      limit,
+      offset
+    });
+
+    res.status(200).json({
+      success: true,
+      data: rows,
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit)
+      }
     });
   } catch (error) {
     next(error);
@@ -798,8 +978,10 @@ module.exports = {
   deleteEquipment,
   getEquipmentQrCode,
   borrowEquipment,
+  borrowEquipmentBatch,
   returnEquipment,
   getEquipmentLoanHistory,
+  getAllLoans,
   getEquipmentHistory,
   uploadEquipmentPhotos,
   deleteEquipmentPhoto,

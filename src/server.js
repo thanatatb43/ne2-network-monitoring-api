@@ -59,6 +59,17 @@ app.listen(port, () => {
     console.log(`[Cron] Daily Snapshot Job Complete`);
   }, { timezone: 'Asia/Bangkok' });
 
+  // 4:00 AM: Close any DeviceDowntime record left stuck open (up_at null) even though
+  // the device is actually back up - self-healing, in case the fire-and-forget close
+  // on recovery got interrupted (e.g. a server restart mid-flight). Previously this
+  // only ran once at server startup, so it could go uncaught for days if the process
+  // stayed up continuously.
+  cron.schedule('0 4 * * *', async () => {
+    console.log(`[Cron] Starting Orphaned Downtime Reconciliation (4:00 AM)`);
+    await reconcileOrphanedDowntime();
+    console.log(`[Cron] Orphaned Downtime Reconciliation Complete`);
+  }, { timezone: 'Asia/Bangkok' });
+
   // 9:00 AM: Notify Teams of any overdue (not yet returned) office equipment loans
   cron.schedule('0 9 * * *', async () => {
     console.log(`[Cron] Starting Overdue Equipment Loan Check (9:00 AM)`);
