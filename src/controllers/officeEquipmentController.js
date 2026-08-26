@@ -88,7 +88,10 @@ const includeRelations = [
     ]
   },
   { model: User, as: 'created_by', attributes: ['id', 'username', 'first_name', 'last_name'] },
-  { model: PeaJob, as: 'jobs', attributes: ['id', 'job_name'], through: { attributes: [] } },
+  // Jobs where this equipment was actually used to fix something else
+  { model: PeaJob, as: 'jobs', attributes: ['id', 'job_name', 'job_type', 'status', 'closing_notes', 'createdAt', 'updatedAt'], through: { attributes: [] } },
+  // "ประวัติการซ่อม" - jobs opened because THIS equipment itself was reported faulty
+  { model: PeaJob, as: 'problem_jobs', attributes: ['id', 'job_name', 'job_type', 'status', 'closing_notes', 'createdAt', 'updatedAt'], through: { attributes: [] } },
   {
     model: OfficeEquipmentLoan,
     as: 'current_loan',
@@ -222,8 +225,66 @@ const getAllEquipment = async (req, res, next) => {
     }
     if (status) where.status = status;
     if (search) {
-      where[Op.or] = ['name', 'asset_number', 'serial_number', 'ip_address', 'mac_address']
+      where[Op.or] = ['name', 'asset_number', 'serial_number', 'ip_address', 'mac_address', 'asset_owner', 'asset_owner_emp_id']
         .map(field => ({ [field]: { [Op.substring]: search } }));
+    }
+
+    const { count, rows } = await OfficeEquipment.findAndCountAll({
+      where,
+      include: includeRelations,
+      order: [['updatedAt', 'DESC'], ['id', 'DESC']],
+      limit,
+      offset,
+      distinct: true // avoid inflated count from the belongsToMany 'jobs' include
+    });
+
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      data: rows.map(attachNetworkIp),
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Text columns searchable individually via POST /search (substring, case-insensitive).
+// Exact-match fields (pea_site_id, a numeric FK) are handled separately below.
+const SEARCHABLE_TEXT_FIELDS = [
+  'name', 'ip_address', 'mac_address', 'department', 'equipment_type', 'status',
+  'notes', 'contract_no', 'vendor', 'serial_number', 'asset_number', 'asset_owner',
+  'asset_owner_emp_id', 'storage_location'
+];
+
+/**
+ * Advanced search: POST a body with any combination of equipment columns to filter
+ * by, instead of cramming everything into GET query params. Each provided text field
+ * does a substring match; all provided fields are ANDed together (narrows the result
+ * as more fields are filled in). Same pagination/response shape as GET / above.
+ */
+const searchEquipment = async (req, res, next) => {
+  try {
+    const { Op } = require('sequelize');
+    const body = req.body || {};
+    const page = Math.max(parseInt(body.page) || 1, 1);
+    const limit = Math.max(parseInt(body.limit) || 20, 1);
+    const offset = (page - 1) * limit;
+
+    const where = {};
+    for (const field of SEARCHABLE_TEXT_FIELDS) {
+      const value = body[field];
+      if (value !== undefined && value !== null && value !== '') {
+        where[field] = { [Op.substring]: value };
+      }
+    }
+    if (body.pea_site_id !== undefined && body.pea_site_id !== null && body.pea_site_id !== '') {
+      where.pea_site_id = body.pea_site_id;
     }
 
     const { count, rows } = await OfficeEquipment.findAndCountAll({
@@ -295,9 +356,27 @@ const getEquipmentById = async (req, res, next) => {
       });
     }
 
+    // Full detail view: site/current loan already come via includeRelations above;
+    // round out with the asset-ownership change log and the complete borrow/return history.
+    const [ownershipHistory, loanHistory] = await Promise.all([
+      OfficeEquipmentAuditLog.findAll({
+        where: { equipment_id: id, action: 'ASSET_INFO_CHANGE' },
+        order: [['createdAt', 'DESC']]
+      }),
+      OfficeEquipmentLoan.findAll({
+        where: { equipment_id: id },
+        include: [{ model: User, as: 'borrowed_by', attributes: ['id', 'username', 'first_name', 'last_name'] }],
+        order: [['borrowed_at', 'DESC']]
+      })
+    ]);
+
+    const data = attachNetworkIp(equipment);
+    data.ownership_history = ownershipHistory;
+    data.loan_history = loanHistory;
+
     res.status(200).json({
       success: true,
-      data: attachNetworkIp(equipment)
+      data
     });
   } catch (error) {
     next(error);
@@ -971,6 +1050,7 @@ const uploadStorageLocationPhoto = async (req, res, next) => {
 
 module.exports = {
   getAllEquipment,
+  searchEquipment,
   getEquipmentBySite,
   getEquipmentById,
   createEquipment,

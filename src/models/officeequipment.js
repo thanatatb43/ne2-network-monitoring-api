@@ -28,6 +28,15 @@ module.exports = (sequelize, DataTypes) => {
           as: 'jobs'
         });
       }
+
+      if (models.PeaJob && models.PeaJobProblemEquipment) {
+        OfficeEquipment.belongsToMany(models.PeaJob, {
+          through: models.PeaJobProblemEquipment,
+          foreignKey: 'equipment_id',
+          otherKey: 'pea_job_id',
+          as: 'problem_jobs'
+        });
+      }
     }
   }
 

@@ -38,6 +38,7 @@ const uploadPhoto = multer({
 router.get('/', officeEquipmentController.getAllEquipment);
 router.get('/site/:pea_site_id', officeEquipmentController.getEquipmentBySite);
 router.get('/loans', officeEquipmentController.getAllLoans);
+router.post('/search', officeEquipmentController.searchEquipment);
 router.get('/:id/qrcode', officeEquipmentController.getEquipmentQrCode);
 router.get('/:id/loans', officeEquipmentController.getEquipmentLoanHistory);
 router.get('/:id/history', officeEquipmentController.getEquipmentHistory);

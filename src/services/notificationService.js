@@ -1,6 +1,6 @@
 const https = require('https');
 const { URL } = require('url');
-const { DeviceDowntime, DeviceMetrics, OfficeEquipmentLoan, OfficeEquipment } = require('../models');
+const { DeviceDowntime, DeviceMetrics, OfficeEquipmentLoan, OfficeEquipment, PeaSite } = require('../models');
 
 /**
  * Raw POST of a MessageCard to TEAMS_WEBHOOK_URL. Shared by device up/down
@@ -374,10 +374,96 @@ const reconcileOrphanedDowntime = async () => {
   }
 };
 
+/**
+ * Immediate Teams notification when a new PEA job (repair report/equipment
+ * request/etc.) is opened.
+ */
+const notifyJobOpened = async (job) => {
+  try {
+    const site = job.pea_site_id ? await PeaSite.findByPk(job.pea_site_id, { attributes: ['pea_name'] }) : null;
+
+    const facts = [
+      { "name": "ประเภทงาน", "value": job.job_type || 'ไม่ระบุ' },
+      { "name": "สำนักงาน", "value": site ? site.pea_name : 'ไม่ระบุ' },
+      { "name": "ความเร่งด่วน", "value": job.priority },
+      { "name": "ผู้แจ้ง", "value": `${job.requester_name || 'ไม่ระบุ'} (${job.requester_emp_id || '-'})` }
+    ];
+
+    const messageCard = {
+      "@type": "MessageCard",
+      "@context": "http://schema.org/extensions",
+      "themeColor": job.priority === 'เร่งด่วน' ? 'FF0000' : '0078D7',
+      "summary": `เปิดงานใหม่: ${job.job_name}`,
+      "sections": [{
+        "activityTitle": `🆕 เปิดงานใหม่: **${job.job_name}**`,
+        "facts": facts,
+        "markdown": true
+      }]
+    };
+
+    await postToTeamsWebhook(messageCard, `job opened #${job.id}`);
+  } catch (err) {
+    console.error('[PeaJob] Failed to send job-opened notification:', err);
+  }
+};
+
+/**
+ * Immediate Teams notification when a PEA job is marked completed.
+ */
+const notifyJobCompleted = async (job) => {
+  try {
+    const messageCard = {
+      "@type": "MessageCard",
+      "@context": "http://schema.org/extensions",
+      "themeColor": "00FF00",
+      "summary": `ปิดงาน: ${job.job_name}`,
+      "sections": [{
+        "activityTitle": `✅ ปิดงานเสร็จสิ้น: **${job.job_name}**`,
+        "facts": [
+          { "name": "รายละเอียดการปิดงาน", "value": job.closing_notes || '-' }
+        ],
+        "markdown": true
+      }]
+    };
+
+    await postToTeamsWebhook(messageCard, `job completed #${job.id}`);
+  } catch (err) {
+    console.error('[PeaJob] Failed to send job-completed notification:', err);
+  }
+};
+
+/**
+ * Immediate Teams notification when a PEA job is cancelled.
+ */
+const notifyJobCancelled = async (job) => {
+  try {
+    const messageCard = {
+      "@type": "MessageCard",
+      "@context": "http://schema.org/extensions",
+      "themeColor": "808080",
+      "summary": `ยกเลิกงาน: ${job.job_name}`,
+      "sections": [{
+        "activityTitle": `🚫 ยกเลิกงาน: **${job.job_name}**`,
+        "facts": [
+          { "name": "เหตุผล", "value": job.cancelled_reason || '-' }
+        ],
+        "markdown": true
+      }]
+    };
+
+    await postToTeamsWebhook(messageCard, `job cancelled #${job.id}`);
+  } catch (err) {
+    console.error('[PeaJob] Failed to send job-cancelled notification:', err);
+  }
+};
+
 module.exports = {
   sendTeamsNotification,
   reconcileOrphanedDowntime,
   notifyOverdueEquipmentLoans,
   notifyEquipmentLoanEvent,
-  notifyEquipmentLoanBatchEvent
+  notifyEquipmentLoanBatchEvent,
+  notifyJobOpened,
+  notifyJobCompleted,
+  notifyJobCancelled
 };
