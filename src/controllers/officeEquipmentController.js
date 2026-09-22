@@ -165,6 +165,25 @@ const logAudit = async (req, action, equipment, data) => {
   }
 };
 
+// Equipment created without a site - most often a blank QR label printed ahead of
+// time, before anyone knows where the item will end up - is physically still held by
+// the unit, so file it under กฟฉ.2 instead of leaving it unassigned. Resolved by name
+// rather than a hard-coded id so it survives the row being re-created.
+const DEFAULT_PEA_SITE_NAME = 'กฟฉ.2';
+
+const getDefaultPeaSiteId = async () => {
+  const site = await PeaSite.findOne({
+    where: { pea_name: DEFAULT_PEA_SITE_NAME },
+    attributes: ['id']
+  });
+
+  if (!site) {
+    console.warn(`[OfficeEquipment] Default site "${DEFAULT_PEA_SITE_NAME}" not found - creating equipment with no site.`);
+    return null;
+  }
+  return site.id;
+};
+
 /**
  * Check for duplicate ip_address / mac_address / serial_number across office equipment
  * @param {Object} data - Data to check (ip_address, mac_address, serial_number)
@@ -200,19 +219,44 @@ const checkDuplicates = async (data, excludeId = null) => {
   return null;
 };
 
+// Columns GET / may be sorted by. Anything outside this list is rejected up front -
+// passing an unknown column straight to Sequelize would fail the query with a 500.
+const SORTABLE_FIELDS = [
+  'name', 'ip_address', 'mac_address', 'department', 'pea_site_id', 'equipment_type',
+  'status', 'contract_no', 'contract_start_date', 'contract_expiry_date', 'vendor',
+  'serial_number', 'asset_number', 'asset_owner', 'asset_owner_emp_id',
+  'storage_location', 'createdAt', 'updatedAt'
+];
+
 /**
  * Get all office equipment, paginated. Optionally filtered by department,
  * equipment_type, pea_site_id, status, and searched by text - applied server-side
  * BEFORE pagination, so filtered results are always complete regardless of which
  * page they'd fall on unfiltered.
+ *
+ * Sorting: ?sort=<column>&order=asc|desc. Both are optional and default to
+ * updatedAt DESC (most recently created or edited first), which is what this
+ * endpoint returned before sorting was configurable.
  */
 const getAllEquipment = async (req, res, next) => {
   try {
     const { Op } = require('sequelize');
-    const { department, equipment_type, pea_site_id, exclude_pea_site_id, status, search } = req.query;
+    const { department, equipment_type, pea_site_id, exclude_pea_site_id, status, search, sort, order } = req.query;
     const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = Math.max(parseInt(req.query.limit) || 20, 1);
     const offset = (page - 1) * limit;
+
+    if (sort && !SORTABLE_FIELDS.includes(sort)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid sort field: "${sort}". Allowed fields: ${SORTABLE_FIELDS.join(', ')}`
+      });
+    }
+
+    const sortField = sort || 'updatedAt';
+    const sortDirection = String(order || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+    // id as a tiebreaker keeps paging stable when many rows share the same sort value
+    const orderClause = [[sortField, sortDirection], ['id', 'DESC']];
 
     const where = {};
     if (department) where.department = department;
@@ -232,7 +276,7 @@ const getAllEquipment = async (req, res, next) => {
     const { count, rows } = await OfficeEquipment.findAndCountAll({
       where,
       include: includeRelations,
-      order: [['updatedAt', 'DESC'], ['id', 'DESC']],
+      order: orderClause,
       limit,
       offset,
       distinct: true // avoid inflated count from the belongsToMany 'jobs' include
@@ -241,6 +285,7 @@ const getAllEquipment = async (req, res, next) => {
     res.status(200).json({
       success: true,
       count: rows.length,
+      sort: { field: sortField, order: sortDirection.toLowerCase() },
       data: rows.map(attachNetworkIp),
       pagination: {
         total: count,
@@ -419,11 +464,25 @@ const createEquipment = async (req, res, next) => {
       });
     }
 
+    // A form that leaves an optional field untouched sends "" rather than omitting it.
+    // MySQL coerces "" to 0 for an INTEGER column, so an unselected pea_site_id used to
+    // hit the peasites foreign key as id 0 and fail the whole insert with a 500 (same
+    // trap for the DATEONLY contract fields). Every column here is nullable, so treat a
+    // blank string as "not provided" - which is what updateEquipment already does.
+    const normalizedData = Object.fromEntries(
+      Object.entries(otherData).map(([key, value]) => [key, value === '' ? null : value])
+    );
+
+    // No site given (field omitted entirely, or blanked by the form) -> fall back to กฟฉ.2
+    if (normalizedData.pea_site_id === undefined || normalizedData.pea_site_id === null) {
+      normalizedData.pea_site_id = await getDefaultPeaSiteId();
+    }
+
     const equipmentData = {
       name,
       ip_address: ip_address || null,
       mac_address: mac_address || null,
-      ...otherData,
+      ...normalizedData,
       created_by_user_id: req.user ? req.user.id : null
     };
 
@@ -585,10 +644,10 @@ const escapeXml = (str) => String(str)
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&apos;');
 
-// Sites where equipment is physically held by the unit itself - only equipment
-// stored at one of these gets the full "ผคข.กดส.ฉ.2" prefix on its QR label;
-// everything else (out at a branch/site) gets the shorter "กดส.ฉ.2".
-const ON_UNIT_PREMISES_SITES = ['โรงเก็บของใต้บันใด ตึก 2', 'โรงเก็บของอาคาร กรย.', 'แผนกคอมพิวเตอร์และเครือข่าย'];
+// Printed on the QR label when the equipment has no PEA site at all. New equipment
+// always gets a site (unassigned ones default to กฟฉ.2), so this only covers older
+// rows recorded before that default existed.
+const LABEL_FALLBACK_UNIT = 'กดส.ฉ.2';
 
 const getEquipmentQrCode = async (req, res, next) => {
   try {
@@ -609,11 +668,12 @@ const getEquipmentQrCode = async (req, res, next) => {
     const qrBuffer = await QRCode.toBuffer(qrContent, { type: 'png', width: qrSize, margin: 2 });
 
     // Caption printed below the QR code so the physical label is self-explanatory
-    // without scanning it: unit name, equipment name, asset/serial info (if set), and its ID.
+    // without scanning it: where it belongs, equipment name, asset/serial info (if
+    // set), and its ID. The first line is the equipment's own PEA site, so a label
+    // says where the item actually sits rather than which unit owns it.
     const PLACEHOLDER_NAME = 'อุปกรณ์ใหม่ (รอกรอกข้อมูล)';
     const siteName = equipment.pea_site ? equipment.pea_site.pea_name : null;
-    const unitLabel = ON_UNIT_PREMISES_SITES.includes(siteName) ? 'ผคข.กดส.ฉ.2' : 'กดส.ฉ.2';
-    const labelLines = [unitLabel];
+    const labelLines = [siteName || LABEL_FALLBACK_UNIT];
     if (equipment.name !== PLACEHOLDER_NAME) labelLines.push(equipment.name);
     if (equipment.asset_number) labelLines.push(`รหัสทรัพย์สิน: ${equipment.asset_number}`);
     if (equipment.serial_number) labelLines.push(`SN: ${equipment.serial_number}`);
