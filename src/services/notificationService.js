@@ -69,7 +69,11 @@ const postToTeamsWebhook = (messageCard, logLabel) => {
 };
 
 /**
- * Helper to log downtime events to the database
+ * Helper to log downtime events to the database. Returns the duration (ms) of
+ * the incident actually closed by this "up" call, or null if there was no
+ * matching open record (or this is a "down" call) - the caller uses this
+ * instead of separately querying "the last closed record", which could return
+ * a stale, unrelated incident's duration if this one had nothing to close.
  */
 const logDowntime = async (device, status) => {
   try {
@@ -84,7 +88,7 @@ const logDowntime = async (device, status) => {
         where: { device_id: device.id, status: 'down', up_at: null }
       });
       if (existingOpen) {
-        return;
+        return null;
       }
 
       await DeviceDowntime.create({
@@ -93,6 +97,7 @@ const logDowntime = async (device, status) => {
         status: 'down'
       });
       console.log(`[Downtime] Logged DOWN event for ${device.pea_name}`);
+      return null;
     } else if (status === 'up') {
       // Close every open downtime record for this device, not just the latest -
       // self-heals if a duplicate ever slips through despite the guard above.
@@ -101,6 +106,7 @@ const logDowntime = async (device, status) => {
         order: [['down_at', 'ASC']]
       });
 
+      let incidentDurationMs = null;
       for (const record of openRecords) {
         const durationMs = now.getTime() - record.down_at.getTime();
         await record.update({
@@ -108,14 +114,23 @@ const logDowntime = async (device, status) => {
           duration_ms: durationMs,
           status: 'up'
         });
+        // The first (oldest) record is when the incident actually started -
+        // that's the duration worth reporting, not whichever duplicate closed last.
+        if (incidentDurationMs === null) {
+          incidentDurationMs = durationMs;
+        }
       }
 
       if (openRecords.length > 0) {
         console.log(`[Downtime] Logged UP event for ${device.pea_name}. Closed ${openRecords.length} open record(s).`);
       }
+
+      return incidentDurationMs;
     }
+    return null;
   } catch (err) {
     console.error('[Downtime] Error logging event:', err);
+    return null;
   }
 };
 
@@ -150,26 +165,24 @@ const sendTeamsNotification = async (device, status, previousStatus) => {
     { "name": "เวลาที่ตรวจสอบ", "value": new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) }
   ];
 
-  // 1. Log to database first as requested
-  await logDowntime(device, status);
+  // 1. Log to database, which tells us exactly what (if anything) this "up"
+  // call actually closed - never fall back to guessing from some other record.
+  const closedDurationMs = await logDowntime(device, status);
 
-  // 2. If coming back UP, try to add duration to the notification
-  if (!isDown) {
-    const lastRecord = await DeviceDowntime.findOne({
-      where: { device_id: device.id, status: 'up' },
-      order: [['up_at', 'DESC']]
-    });
-    if (lastRecord && lastRecord.duration_ms) {
-      const seconds = Math.floor(lastRecord.duration_ms / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const hours = Math.floor(minutes / 60);
-      
-      let durationStr = `${seconds % 60} วินาที`;
-      if (minutes > 0) durationStr = `${minutes % 60} นาที ${durationStr}`;
-      if (hours > 0) durationStr = `${hours} ชั่วโมง ${durationStr}`;
-      
-      facts.push({ "name": "ระยะเวลาที่ขัดข้อง", "value": durationStr });
-    }
+  // 2. If coming back UP and this call genuinely closed an open incident, add
+  // its real duration to the notification. If nothing was open to close (e.g.
+  // the down leg never got logged), we simply omit this fact rather than show
+  // a duration borrowed from an unrelated past incident.
+  if (!isDown && closedDurationMs) {
+    const seconds = Math.floor(closedDurationMs / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+
+    let durationStr = `${seconds % 60} วินาที`;
+    if (minutes > 0) durationStr = `${minutes % 60} นาที ${durationStr}`;
+    if (hours > 0) durationStr = `${hours} ชั่วโมง ${durationStr}`;
+
+    facts.push({ "name": "ระยะเวลาที่ขัดข้อง", "value": durationStr });
   }
 
   const messageCard = {
