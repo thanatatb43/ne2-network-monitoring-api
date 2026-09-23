@@ -1,6 +1,7 @@
 const { BudgetTransaction, Budget } = require('../models');
 const xlsx = require('xlsx');
 const fs = require('fs');
+const { getTransactionSelectorsV2 } = require('./budgetDashboardController');
 
 /**
  * Sync the Budgets table after a transactions upload.
@@ -320,8 +321,17 @@ const uploadTransactions = async (req, res, next) => {
 
 /**
  * Get unique values for transaction selectors
+ *
+ * Upgraded per BUDGET_DASHBOARD_BACKEND_API_SPEC.md section 7: when ?field= is
+ * present, delegate to the new field/q/limit contract (object {value,label}
+ * options, searchable, capped). With no ?field=, keep the original response
+ * shape below unchanged so nothing that already calls this endpoint breaks.
  */
 const getTransactionSelectors = async (req, res, next) => {
+  if (req.query.field) {
+    return getTransactionSelectorsV2(req, res, next);
+  }
+
   try {
     const fields = [
       'cost_center',

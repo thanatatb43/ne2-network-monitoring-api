@@ -2,14 +2,29 @@ const express = require('express');
 const router = express.Router();
 const budgetController = require('../controllers/budgetController');
 const budgetTransactionController = require('../controllers/budgetTransactionController');
+const budgetDashboardController = require('../controllers/budgetDashboardController');
 const { verifyToken, hasRole } = require('../middleware/authMiddleware');
 
-// Public routes (No token required)
-router.get('/summary/:year', budgetController.getBudgetSummary);
+// Public routes (No token required) - every read endpoint in this app is public by
+// default (see officeEquipmentRoutes, the legacy budget endpoints below); the new
+// dashboard endpoints follow the same convention. See budgetDashboardController.js
+// header, deviation 5, for the reasoning.
+router.get('/summary/:year', budgetController.getBudgetSummary); // legacy - kept for compatibility, see BUDGET_DASHBOARD_BACKEND_API_SPEC.md section 9
 router.get('/selectors', budgetController.getBudgetSelectors);
+router.get('/dashboard/summary', budgetDashboardController.getDashboardSummary);
+
+// /transactions/selectors: new field/q/limit mode when ?field= is present, otherwise
+// falls through to the legacy full-list response - see getTransactionSelectors below.
 router.get('/transactions/selectors', budgetTransactionController.getTransactionSelectors);
-router.post('/transactions/find', budgetTransactionController.findTransactions);
+
+// Must come before /transactions/:transaction_id so these literal segments aren't
+// swallowed as an id.
+router.get('/transactions/aggregates', budgetDashboardController.getTransactionsAggregates);
+router.post('/transactions/find', budgetTransactionController.findTransactions); // legacy - kept for compatibility
 router.get('/transactions/username-groups', budgetTransactionController.getUsernameGroups);
+
+router.get('/transactions', budgetDashboardController.getTransactionsList);
+router.get('/transactions/:transaction_id', budgetDashboardController.getTransactionById);
 
 // Apply verifyToken to other budget routes
 router.use(verifyToken);
@@ -44,7 +59,6 @@ const upload = multer({
 
 // Transaction routes (Must be before /:id)
 router.post('/upload-transactions', hasRole(['super_admin', 'computer_admin', 'network_admin', 'operator']), upload.single('file'), budgetTransactionController.uploadTransactions);
-router.get('/transactions', budgetTransactionController.getAllTransactions);
 
 
 // Parameterized routes
