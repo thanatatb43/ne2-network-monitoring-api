@@ -61,7 +61,23 @@ const { BudgetTransaction, Budget, sequelize } = require('../models');
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+// Formats money as a 2-dp decimal string. MySQL returns DECIMAL columns and
+// SUM(DECIMAL) as exact strings - those are formatted by string manipulation so a
+// total is never rounded through a JS float. Numbers (only ever computed ratios
+// like usage_percentage/average in this file) fall back to toFixed.
 const toMoney = (n) => {
+  if (n === null || n === undefined || n === '') return '0.00';
+  if (typeof n === 'string') {
+    const m = n.trim().match(/^(-?)(\d+)(?:\.(\d*))?$/);
+    if (m) {
+      const frac = (m[3] || '');
+      if (frac.length <= 2) {
+        const whole = m[2].replace(/^0+(?=\d)/, '');
+        const out = `${whole}.${frac.padEnd(2, '0')}`;
+        return m[1] && out !== '0.00' ? `-${out}` : out;
+      }
+    }
+  }
   const v = Number(n);
   return (Number.isFinite(v) ? v : 0).toFixed(2);
 };
@@ -79,6 +95,58 @@ const sendError = (res, status, code, message, fields) => {
 const isValidYYYYMM = (s) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 const isValidDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
 
+// ---------------------------------------------------------------------------
+// Global search `q` - "literal-v1" semantics (REMAINING_UX_UI_BACKEND_API_SPEC.md B1):
+// the whole trimmed string is one case-insensitive literal substring, ORed across
+// every searchable field. %, _ and \ are literal characters, not wildcards. A NULL
+// column never matches (LIKE on NULL is NULL, not true), so a missing value is
+// never found by typing "null".
+// ---------------------------------------------------------------------------
+const Q_MAX_CODE_POINTS = 200;
+const SEARCH_META = { version: 'literal-v1', scope: 'all_filtered_records' };
+
+// Escape LIKE metacharacters using MySQL's default escape char (backslash). The
+// pattern is still sent as a bound value, so this only neutralises wildcards -
+// it's not what protects against injection.
+const escapeLike = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
+
+// Each searchable response field and the SQL expression that renders it exactly as
+// it appears in the response (ISO dates, canonical decimal, plain integer ids), so
+// what the user sees is what they can search for.
+const SEARCH_COLUMNS = [
+  'id',                // transaction_id
+  'reference_doc_no',
+  'description',
+  'cost_center',       // account_code (cost_center is its alias - same column, not repeated)
+  'cost_center_name',  // account_name and cost_center_name - same column
+  'clearing_account',  // clearing_account_code
+  'clearing_account_name',
+  'username',
+  'year',              // fiscal_year
+  'document_date',     // YYYY-MM-DD
+  'posting_date',      // YYYY-MM-DD - also covers posting_month (YYYY-MM is a prefix of it)
+  'value_co_curr'      // amount, canonical decimal e.g. -1200.50
+];
+
+const buildSearchPredicate = (q) => {
+  const pattern = `%${escapeLike(q.toLowerCase())}%`;
+  const ors = SEARCH_COLUMNS.map((col) =>
+    Sequelize.where(
+      Sequelize.fn('LOWER', Sequelize.cast(Sequelize.col(col), 'CHAR')),
+      { [Op.like]: pattern }
+    )
+  );
+
+  // amount_direction and currency are derived, not stored - match them the same way
+  // rowToTransaction renders them, so searching "credit" or "thb" behaves literally.
+  const lower = q.toLowerCase();
+  if ('debit'.includes(lower)) ors.push({ value_co_curr: { [Op.gte]: 0 } });
+  if ('credit'.includes(lower)) ors.push({ value_co_curr: { [Op.lt]: 0 } });
+  if ('thb'.includes(lower)) ors.push(Sequelize.literal('1 = 1'));
+
+  return { [Op.or]: ors };
+};
+
 /**
  * Parses+validates the common filter set shared by /transactions and
  * /transactions/aggregates. Returns { where, applied, error } - error is a
@@ -88,6 +156,9 @@ const parseCommonFilters = (query) => {
   const applied = {};
   const where = {};
   const deprecations = [];
+  // Predicates that aren't a plain column match (posting_month, q) are collected here
+  // and ANDed in, so they compose with each other and with the column filters.
+  const extra = [];
 
   // fiscal_year
   let fiscalYear = null;
@@ -141,7 +212,7 @@ const parseCommonFilters = (query) => {
     if (fiscalYear !== null && monthYear !== fiscalYear) {
       return { error: { status: 400, code: 'INVALID_QUERY', message: 'posting_month is not within fiscal_year', fields: { posting_month: 'Outside fiscal_year' } } };
     }
-    where.posting_date = { [Op.and]: [Sequelize.where(Sequelize.fn('LEFT', Sequelize.col('posting_date'), 7), query.posting_month)] };
+    extra.push(Sequelize.where(Sequelize.fn('LEFT', Sequelize.col('posting_date'), 7), query.posting_month));
     applied.posting_month = query.posting_month;
   }
 
@@ -158,8 +229,7 @@ const parseCommonFilters = (query) => {
     const range = {};
     if (query.date_from) range[Op.gte] = query.date_from;
     if (query.date_to) range[Op.lte] = query.date_to;
-    // posting_date may already have a filter from posting_month above - combine rather than overwrite
-    where.posting_date = where.posting_date ? { ...where.posting_date, ...range } : range;
+    where.posting_date = range;
     if (query.date_from) applied.date_from = query.date_from;
     if (query.date_to) applied.date_to = query.date_to;
   }
@@ -173,8 +243,30 @@ const parseCommonFilters = (query) => {
     applied.amount_direction = query.amount_direction;
   }
 
+  // q - global literal search (REMAINING_UX_UI_BACKEND_API_SPEC.md, B1)
+  let q = typeof query.q === 'string' ? query.q.trim() : '';
+  if (q !== '') {
+    if ([...q].length > Q_MAX_CODE_POINTS) {
+      return { error: { status: 400, code: 'INVALID_QUERY', message: `q must not exceed ${Q_MAX_CODE_POINTS} characters`, fields: { q: 'Too long' } } };
+    }
+    extra.push(buildSearchPredicate(q));
+    applied.q = q;
+  }
+
+  if (extra.length) where[Op.and] = extra;
+
   return { where, applied, deprecations, error: null };
 };
+
+// meta.search is always present (not only when q is sent) so the frontend can tell
+// that server-side search is deployed from the response itself, not from a 200.
+const buildListMeta = (parsed) => ({
+  generated_at: new Date().toISOString(),
+  currency: 'THB',
+  applied_filters: parsed.applied,
+  search: SEARCH_META,
+  ...(parsed.deprecations && parsed.deprecations.length ? { deprecations: parsed.deprecations } : {})
+});
 
 const rowToTransaction = (row) => {
   const isDebit = row.value_co_curr !== null && Number(row.value_co_curr) >= 0;
@@ -385,9 +477,17 @@ const getTransactionsList = async (req, res, next) => {
     }
     const sortDirection = (req.query.order || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
+    const sortColumn = SORT_COLUMNS[sortKey];
     const { count, rows } = await BudgetTransaction.findAndCountAll({
       where: parsed.where,
-      order: [[SORT_COLUMNS[sortKey], sortDirection], ['id', 'DESC']],
+      order: [
+        // NULLs always last, in both directions - MySQL's own default flips them
+        // between ASC and DESC, which would move rows across pages when a user
+        // toggles sort order.
+        [Sequelize.literal(`\`${sortColumn}\` IS NULL`), 'ASC'],
+        [sortColumn, sortDirection],
+        ['id', 'DESC'] // stable tie-breaker so paging never repeats or skips a row
+      ],
       limit: pageSize,
       offset: (page - 1) * pageSize,
       raw: true // bypass the model's DD.MM.YYYY date getters - we need ISO here
@@ -400,14 +500,12 @@ const getTransactionsList = async (req, res, next) => {
         page,
         page_size: pageSize,
         total_items: count,
-        total_pages: Math.max(1, Math.ceil(count / pageSize))
+        total_pages: Math.ceil(count / pageSize) // 0 when nothing matched
       },
+      // Kept at the top level for callers already reading it here; also echoed in
+      // meta per REMAINING_UX_UI_BACKEND_API_SPEC.md B1.
       applied_filters: parsed.applied,
-      meta: {
-        generated_at: new Date().toISOString(),
-        currency: 'THB',
-        ...(parsed.deprecations && parsed.deprecations.length ? { deprecations: parsed.deprecations } : {})
-      }
+      meta: buildListMeta(parsed)
     });
   } catch (error) {
     console.error('[BudgetDashboard] getTransactionsList failed:', error);
@@ -431,7 +529,9 @@ const getTransactionsAggregates = async (req, res, next) => {
         [Sequelize.fn('COUNT', Sequelize.col('id')), 'transaction_count'],
         [Sequelize.fn('MIN', Sequelize.col('posting_date')), 'first_posting_date'],
         [Sequelize.fn('MAX', Sequelize.col('posting_date')), 'last_posting_date'],
-        [Sequelize.fn('SUM', Sequelize.literal('CASE WHEN posting_date IS NULL THEN 1 ELSE 0 END')), 'records_without_posting_date']
+        [Sequelize.fn('SUM', Sequelize.literal('CASE WHEN posting_date IS NULL THEN 1 ELSE 0 END')), 'records_without_posting_date'],
+        // Lets a caller reconcile: SUM(by_month.net) + amount_without_posting_date = totals.net
+        [Sequelize.fn('SUM', Sequelize.literal('CASE WHEN posting_date IS NULL THEN value_co_curr ELSE 0 END')), 'amount_without_posting_date']
       ],
       where: parsed.where,
       raw: true
@@ -493,15 +593,12 @@ const getTransactionsAggregates = async (req, res, next) => {
         coverage: {
           first_posting_date: totalsRow.first_posting_date,
           last_posting_date: totalsRow.last_posting_date,
-          records_without_posting_date: Number(totalsRow.records_without_posting_date) || 0
+          records_without_posting_date: Number(totalsRow.records_without_posting_date) || 0,
+          amount_without_posting_date: toMoney(totalsRow.amount_without_posting_date)
         }
       },
       applied_filters: parsed.applied,
-      meta: {
-        generated_at: new Date().toISOString(),
-        currency: 'THB',
-        ...(parsed.deprecations && parsed.deprecations.length ? { deprecations: parsed.deprecations } : {})
-      }
+      meta: buildListMeta(parsed)
     });
   } catch (error) {
     console.error('[BudgetDashboard] getTransactionsAggregates failed:', error);
