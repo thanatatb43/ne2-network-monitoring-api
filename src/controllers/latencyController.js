@@ -1,7 +1,15 @@
 const { NetworkDevices, LatencyLogs, LatencyRecent, DeviceMetrics, DevicesAvailability, DailyAvailabilitySnapshot, Sequelize } = require('../models');
 const { Op } = Sequelize;
-const ping = require('ping');
 const { sendTeamsNotification } = require('../services/notificationService');
+const { probeDevice } = require('../services/deviceProbe');
+const { describeLiveStatus, liveStatusMeta } = require('../services/deviceLiveStatus');
+
+// Adds live_status / alive / stale / age_seconds next to the stored fields, which are
+// left exactly as they were. See deviceLiveStatus.js for the precedence rules.
+const withLiveStatus = (metric, nowMs) => {
+  const json = metric.toJSON ? metric.toJSON() : metric;
+  return { ...json, ...describeLiveStatus(json, nowMs) };
+};
 
 /**
  * Get average latency per device
@@ -132,10 +140,12 @@ const getDeviceMetrics = async (req, res, next) => {
       ]
     });
 
+    const nowMs = Date.now();
     res.status(200).json({
       success: true,
       count: metrics.length,
-      data: metrics
+      data: metrics.map((m) => withLiveStatus(m, nowMs)),
+      meta: { generated_at: new Date(nowMs).toISOString(), ...liveStatusMeta() }
     });
   } catch (error) {
     next(error);
@@ -228,9 +238,26 @@ const getStatusSummary = async (req, res, next) => {
 
     summary.avg_latency = latencyCount > 0 ? (totalLatency / latencyCount).toFixed(2) : 0;
 
+    // online/offline above count the raw last measurement, stale ones included, and are
+    // kept as-is for existing callers. `live` counts only results that are still current.
+    const nowMs = Date.now();
+    const rows = await DeviceMetrics.findAll({
+      attributes: ['status', 'checked_at'],
+      include: [{ model: NetworkDevices, as: 'device', attributes: [], required: true }],
+      raw: true
+    });
+    summary.live = { online: 0, offline: 0, unknown: 0 };
+    rows.forEach((r) => {
+      const { live_status } = describeLiveStatus(r, nowMs);
+      if (live_status === 'up') summary.live.online++;
+      else if (live_status === 'down') summary.live.offline++;
+      else summary.live.unknown++;
+    });
+
     res.status(200).json({
       success: true,
-      data: summary
+      data: summary,
+      meta: { generated_at: new Date(nowMs).toISOString(), ...liveStatusMeta() }
     });
   } catch (error) {
     next(error);
@@ -257,10 +284,21 @@ const getDownDevices = async (req, res, next) => {
       order: [['checked_at', 'DESC']]
     });
 
+    // Still every device whose LAST measurement was down (unchanged, for existing
+    // callers) - but each now says whether that result is current. A device the loop
+    // hasn't reached in a while comes back live_status 'unknown', not 'down'.
+    const nowMs = Date.now();
+    const data = downDevices.map((m) => withLiveStatus(m, nowMs));
     res.status(200).json({
       success: true,
-      count: downDevices.length,
-      data: downDevices
+      count: data.length,
+      data,
+      meta: {
+        generated_at: new Date(nowMs).toISOString(),
+        currently_down: data.filter((d) => d.live_status === 'down').length,
+        stale_down: data.filter((d) => d.stale).length,
+        ...liveStatusMeta()
+      }
     });
   } catch (error) {
     next(error);
@@ -284,24 +322,11 @@ const checkDeviceStatus = async (req, res, next) => {
       });
     }
 
-    // Perform live ping (3 packets for reliability)
-    let result = await ping.promise.probe(device.gateway, {
-      timeout: 5,
-      extra: ['-n', '3']
-    });
-
-    // Fallback to FortiGate WAN IP if gateway is down
-    if (!result.alive && device.wan_ip_fgt) {
-      const fallbackResult = await ping.promise.probe(device.wan_ip_fgt, {
-        timeout: 5,
-        extra: ['-n', '3']
-      });
-      if (fallbackResult.alive) {
-        result = fallbackResult;
-      }
-    }
-
-    const newStatus = result.alive ? 'up' : 'down';
+    // Same probe as the background loop - gateway, WAN fallback, one retry. This used
+    // to probe once with no retry, so a single blip on a manual check recorded "down"
+    // and fired a Teams alert straight away.
+    const probe = await probeDevice(device);
+    const newStatus = probe.status;
 
     // Check for status change for notification
     const currentMetric = await DeviceMetrics.findOne({ where: { device_id: device.id } });
@@ -314,9 +339,14 @@ const checkDeviceStatus = async (req, res, next) => {
       pea_name: device.pea_name,
       gateway: device.gateway,
       status: newStatus,
-      latency_ms: result.alive ? parseFloat(result.avg) : null,
-      packet_loss: result.alive ? parseFloat(result.packetLoss) : 100,
-      checked_at: new Date().toISOString()
+      latency_ms: probe.latency_ms,
+      packet_loss: probe.packet_loss,
+      checked_at: probe.measured_at.toISOString(),
+      // Additive (N1): just measured, so always fresh.
+      live_status: newStatus,
+      alive: probe.alive,
+      probed_ip: probe.probed_ip,
+      attempts: probe.attempts
     };
 
     // Update metrics table with this fresh check
@@ -328,10 +358,18 @@ const checkDeviceStatus = async (req, res, next) => {
       checked_at: response.checked_at
     });
 
-    res.status(200).json({
-      success: true,
-      data: response
-    });
+    // This writes DeviceMetrics and can fire a Teams alert, so it belongs on POST.
+    // GET still works for existing callers but is flagged deprecated - see
+    // docs/REMAINING_UX_UI_BACKEND_RESPONSE.md, N1, for the removal plan.
+    const body = { success: true, data: response };
+    if (req.method === 'GET') {
+      res.set('Deprecation', 'true');
+      res.set('Link', `</api/latency/check/${device.id}>; rel="successor-version"; method="POST"`);
+      body.meta = {
+        deprecations: ['GET /api/latency/check/:id changes monitoring state and can send a Teams alert - call it with POST instead. GET will be removed once no caller uses it.']
+      };
+    }
+    res.status(200).json(body);
   } catch (error) {
     next(error);
   }

@@ -1,17 +1,19 @@
 # Backend response — REMAINING_UX_UI_BACKEND_API_SPEC.md
 
-วันที่: 27 กันยายน 2026 · ตอบกลับ section 11 ของสเปค
+วันที่: 27 กันยายน 2026 · ตอบกลับ section 11 ของสเปค · **ปรับปรุงรอบ 2** (ดูแถบ "รอบ 2" ด้านล่าง)
 
 | รหัส | สถานะ |
 |---|---|
 | **B1** | ✅ ทำแล้ว — `q` บน `GET /api/budgets/transactions` |
-| **B2** | ✅ ทำแล้ว — `q` บน `GET /api/budgets/transactions/aggregates` + `coverage.amount_without_posting_date` |
+| **B2** | ✅ ทำแล้ว — `q` บน `GET /api/budgets/transactions/aggregates` + `coverage.amount_without_posting_date` · **รอบ 2: พิสูจน์กรณี `posting_date = NULL` ด้วย fixture แล้ว** |
 | **B3** | ✅ ยืนยัน mapping — ไม่มีการเปลี่ยน shape |
-| **N1** | 📋 ตอบ contract ของเดิม + เสนอ field เพิ่ม — **ยังไม่ได้แก้โค้ด** รอยืนยัน |
+| **N1** | ✅ **รอบ 2: ทำแล้ว** — กติกาข้อมูลเก่า + ลำดับ `live_status`/`alive`/`status`, check ย้ายเป็น POST (GET deprecated), แก้ packet loss และเวลาวัด |
 | **L1** | 📋 ตอบ semantics ของเดิม — แนะนำยังไม่ต้องทำ L2 |
 | L2 / E1 / X1 | ⏸ ไม่ได้ทำในรอบนี้ ตามที่สเปคระบุ |
 
-**Deployment:** ไม่มี migration ใหม่ ไม่ต้อง restart เพิ่ม (nodemon reload) · ทดสอบบน environment development กับฐานข้อมูลจริง 6,178 ธุรกรรม
+**Deployment:** ไม่มี migration ใหม่ ไม่ต้อง restart เพิ่ม (nodemon reload) · env ใหม่ (ไม่บังคับ): `DEVICE_STATUS_STALE_SECONDS` ค่าเริ่มต้น `2700` · ทดสอบบน environment development กับฐานข้อมูลจริง 6,178 ธุรกรรม / 197 อุปกรณ์
+
+> **รอบ 2 — แก้ข้อความที่ผิดในรอบแรก:** รอบแรกเขียนว่า "`packet_loss` ถูกบังคับเป็น 100 ทุกครั้งที่ `alive=false` ... ค่าจริงอาจเป็น 33%" — **ข้อนี้ผิด** เมื่ออ่าน parser ของ library แล้วพบว่า `alive=false` แปลว่าไม่มี echo reply จริงสักตัว 100% จึงถูกต้องมาตลอด ส่วน 33% คือ Windows นับ "Destination host unreachable" จาก router เป็นการได้รับ ปัญหาจริงอยู่อีกฝั่งคือตอน `alive=true` ดูรายละเอียดที่ N1 ด้านล่าง
 
 **วิธีตรวจว่า B1/B2 deploy แล้ว:** ทุก response ของ `/transactions` และ `/transactions/aggregates` มี `meta.search.version = "literal-v1"` เสมอ (ไม่ว่าจะส่ง `q` หรือไม่) — ให้ frontend เช็ค field นี้ก่อนเลิก fallback ค้นทุกหน้าใน browser อย่าใช้ HTTP 200 เป็นตัวบอก
 
@@ -174,10 +176,28 @@ SUM(by_month.count) + coverage.records_without_posting_date = totals.transaction
 | 3 | ✅ q + account_code / fiscal_year / posting_month เป็น AND ทุกแถว |
 | 4 | ✅ ไล่ทุกหน้า ไม่ซ้ำ/ไม่หาย; amount asc เรียงเชิงตัวเลข; หน้าเกินขอบ → `[]` + total จริง |
 | 5 | ✅ total = count และ SUM(amount ทุกหน้า) = net **ตรงระดับสตางค์** (คำนวณเป็น integer cents) ทั้ง 4 ชุด: `q=สาย` (225 แถว), `q=สาย`+2025 (99), `q=e` (6178), ไม่มี q+2025 (1879) |
-| 6 | ⚠️ ผ่านแบบ trivial — **ข้อมูลจริงไม่มีแถวที่ `posting_date` เป็น NULL เลย** จึงยังไม่ได้ทดสอบกรณีที่ monthly ≠ totals จริง ต้องใช้ fixture ที่มีแถวแบบนั้น |
+| 6 | ✅ **รอบ 2: พิสูจน์ด้วย fixture แล้ว** (ข้อมูลจริงไม่มีแถว `posting_date = NULL` เลย) — ดู "Fixture: posting_date = NULL" ด้านล่าง |
 | 7 | ✅ q ไม่พบ + fiscal_year → 12 เดือนเป็นศูนย์ ไม่คืนยอดทั้งปี |
 | 8 | ✅ 200 code points ผ่าน, 201 → `400` ทั้งสอง endpoint; page_size/sort ผิด → `400` |
 | 9 | ✅ `/summary/:year`, `/dashboard/summary`, selectors ทั้งสองโหมด, detail 200/404, `POST /find` — shape เดิม ไม่ได้แตะ upload/CRUD |
+
+### Fixture: `posting_date = NULL` (รอบ 2) — 31/31 ผ่าน
+
+`node scripts/check-budget-coverage-mysql.js` — **ไม่เขียนข้อมูลถาวร:** ใน connection เดียวของ pool ขนาด 1 สร้าง `TEMPORARY TABLE BudgetTransactions` บังตารางจริงเฉพาะ connection นั้น แล้วเรียก controller ตัวจริงบน connection เดียวกัน (แนวเดียวกับ `scripts/check-downtime-history-mysql.js`) ยืนยันแล้วว่าตารางจริงนับได้ 6178 / ยอด 17,170,768.10 เท่าเดิมทั้งก่อนและหลังรัน
+
+Fixture 9 แถว: 3 แถว `posting_date = NULL` (มีทั้งบวกและลบ ต่างบัญชี), 1 แถว `document_date`/`description` เป็น NULL, 1 แถวปีอื่นที่ไม่ทราบเดือน **ค่าคาดหวังคำนวณด้วยมือจาก fixture ไม่ได้ให้โค้ดที่ทดสอบคำนวณเอง** และยอดเงินตรวจเป็นหน่วยสตางค์ (integer)
+
+| กรณี | ผล |
+|---|---|
+| `fiscal_year=2026` | count 8, debit 2845.77, credit -275.30, net 2570.47 ตรงเป๊ะ · coverage 3 แถว / 437.09 · **monthly ≠ totals จริง** (script ยืนยันว่าต่างกันจริง ไม่ใช่ผ่านเพราะเท่ากันอยู่แล้ว) และ `SUM(by_month) + coverage = totals` |
+| แถวไม่ทราบเดือนในรายการ | ได้ `posting_date` และ `posting_month` เป็น `null` · เรียง `posting_date` ทั้ง asc/desc → NULL อยู่ท้ายสุด |
+| `q` ที่ตรงเฉพาะแถวไม่ทราบเดือน | ยอดทั้งหมดไปอยู่ใน coverage ทุกเดือนเป็นศูนย์ |
+| `account_code` | แยกยอดไม่ทราบเดือนตามบัญชีถูกต้อง (2 แถว / 424.75) |
+| `posting_month`, `date_from`/`date_to` | แถวไม่ทราบเดือน**ไม่ถูกนับ** (ไม่มีวันที่ให้อยู่ในช่วง) coverage = 0 |
+| แถวปี 2025 ที่ไม่ทราบเดือน | ไม่รั่วเข้าผล 2026 |
+| `q=null` | ไม่เจอแถวที่ field เป็น NULL |
+
+**นิยามที่ยืนยันจาก fixture:** แถวไม่ทราบเดือนนับใน `totals` เสมอ แต่ไม่อยู่ใน bucket เดือนใด และ **filter ใดๆ ที่อิงวันที่จะตัดแถวเหล่านี้ออก**
 
 ### Performance (dataset จริง 6,178 แถว, worst of 5, localhost)
 
@@ -190,52 +210,100 @@ SUM(by_month.count) + coverage.records_without_posting_date = totals.transaction
 
 ---
 
-## N1 — สถานะอุปกรณ์และเวลา (ตอบ contract ของเดิม)
-
-**ไม่ได้แก้โค้ด N1 ในรอบนี้** — สเปคขอให้ยืนยันก่อน ด้านล่างคือพฤติกรรมจริงจากการอ่านโค้ดและข้อมูล
+## N1 — สถานะอุปกรณ์และเวลา (รอบ 2: ทำแล้ว)
 
 ### ⚠️ path ในสเปคไม่ตรงของจริง
 
-สเปคเขียน `POST /api/latency/check/:deviceId` — **ของจริงคือ `GET /api/latency/check/:id`**
+สเปคเขียน `POST /api/latency/check/:deviceId` — ของเดิมคือ `GET /api/latency/check/:id` รอบ 2 **เพิ่ม `POST` เป็นทางหลัก** และคง `GET` ไว้แบบ deprecated (ดู "แผนแก้การตรวจอุปกรณ์")
 
-### ภาพรวมแหล่งข้อมูล
+### แหล่งข้อมูล
 
-ทุก endpoint ยกเว้น `check-ip` อ่านจากตาราง `DeviceMetrics` ซึ่งมี **1 แถวต่ออุปกรณ์** (ยืนยันแล้วไม่มีแถวซ้ำ) ถูกเขียนทับโดย 2 แหล่ง:
-1. **ping loop พื้นหลัง** (`pingService.js`) — 10 เครื่อง/batch พัก 60 วิ, รอบเต็มประมาณ 20 นาที, **หยุดทำงาน 00:00–05:00** ทุกคืน
-2. **`GET /api/latency/check/:id`** — เมื่อมีคนกดตรวจเอง
+ทุก endpoint ยกเว้น `check-ip` และ `ping-check` อ่านจากตาราง `DeviceMetrics` ซึ่งมี **1 แถวต่ออุปกรณ์** (ยืนยันแล้วไม่มีแถวซ้ำ) เก็บ**ผลวัดครั้งล่าสุด** ถูกเขียนทับโดย 2 แหล่ง:
+1. **ping loop พื้นหลัง** — 10 เครื่อง/batch พัก 60 วิ, วนครบทุกเครื่องประมาณ 21.5 นาที, **หยุด 00:00–05:00**
+2. **`POST`/`GET /api/latency/check/:id`** — เมื่อมีคนกดตรวจเอง
 
-**`status` มีแค่ 2 ค่า `up` / `down`** ไม่มี `unknown` และ**ไม่มี field `alive`** ใน DeviceMetrics
+ทั้งสองแหล่งใช้โค้ด probe ตัวเดียวกันแล้ว (`src/services/deviceProbe.js`) — gateway → ถ้าไม่ตอบลอง FortiGate WAN → ถ้ายังไม่ตอบรอ 3 วิ แล้ว retry อีก 1 ครั้ง ก่อนสรุปว่า down
 
-| Endpoint | ตอบคำถามในสเปค |
+### กติกาข้อมูลเก่า (staleness)
+
+ผลวัดที่เก่ากว่า **`stale_after_seconds` = 2700 วินาที (45 นาที)** ไม่ถือเป็นสถานะปัจจุบันอีกต่อไป
+
+- **ที่มาของตัวเลข:** loop วนครบใช้ ~21.5 นาที (วัดจากระยะห่างของ `LatencyLogs` และกลุ่ม DeviceDowntime ที่กระจุกช่วง 21–29 นาที) — 45 นาทีคือ 2 รอบบวก margin ยอมให้พลาดได้ 1 รอบ
+- **ปรับได้** ผ่าน env `DEVICE_STATUS_STALE_SECONDS` ถ้าจังหวะ loop เปลี่ยน (ค่าที่ไม่ใช่จำนวนเต็มบวกจะใช้ 2700)
+- **ช่วง 00:00–05:00:** loop หยุด ทุกเครื่องจะกลายเป็น `unknown` ราว 00:45 เป็นต้นไปจนถึงรอบแรกหลัง 05:00 — **ถูกต้องตามนิยาม ไม่ใช่เหตุขัดข้อง** frontend ควรแสดงเป็น "ยังไม่มีผลวัดล่าสุด" ไม่ใช่ offline
+- ตัวเลขนี้เจ้าของระบบยังเปลี่ยนได้ ผมตั้งจากจังหวะ loop ที่วัดได้จริง ไม่ได้ตั้งเพื่อให้ทุกเครื่องดูปกติ
+
+### ลำดับการใช้ field
+
+| ลำดับ | Field | ค่า | ใช้เมื่อ |
+|---|---|---|---|
+| **1** | `live_status` | `up` / `down` / `unknown` | **ตัวเดียวที่ใช้แสดง "สถานะปัจจุบัน"** |
+| 2 | `alive` | `true` / `false` / `null` | boolean ของ `live_status` (`null` = unknown) — derive มาจาก `live_status` จึง**ขัดกันไม่ได้** |
+| 3 | `status` | `up` / `down` | ผลวัดดิบครั้งล่าสุด คงไว้ให้ caller เดิม — **ห้ามแสดงเป็นสถานะปัจจุบันเดี่ยวๆ** ใช้ได้แค่ "วัดล่าสุด `<status>` เมื่อ `<checked_at>`" |
+
+`live_status = unknown` เมื่อ: ไม่มีผลวัด / `checked_at` ว่างหรืออ่านไม่ได้ / เก่ากว่า threshold / `status` เป็นค่าที่ไม่รู้จัก
+
+Field ประกอบ: `stale` (boolean), `age_seconds` (อายุผลวัด ณ ตอนตอบ, `null` ถ้าไม่มีผลวัด) — ทุก response มี `meta` บอก `stale_after_seconds`, `status_precedence`, `measured_at_field: "checked_at"`, `probe_paused_window`, `generated_at` (เวลาสร้าง response แยกจากเวลาวัด)
+
+### เปลี่ยนแปลงราย endpoint (additive ทั้งหมด — field เดิมไม่เปลี่ยน)
+
+| Endpoint | เพิ่ม |
 |---|---|
-| `GET /latency/metrics` | อ้าง `device_id` (มี `id` ของแถว metric ด้วย อย่าสับสน) · มี `status` ไม่มี `alive` · `checked_at` = เวลาวัด (ดูหมายเหตุ) · `latency_ms`, `packet_loss`, `client_id`, `createdAt`, `updatedAt` + `device.{pea_name,pea_type,province,gateway}` · กรองอุปกรณ์ที่ถูก soft-delete ออก (inner join) |
-| `GET /latency/down` | ผลล่าสุดของแต่ละเครื่องเท่านั้น ไม่มีประวัติปน · **ไม่มี freshness cutoff** — เครื่องที่ไม่ถูกตรวจนานก็ยังนับ down ต่อไปเรื่อยๆ · `[]` คืนเฉพาะ query สำเร็จ, database error ไปที่ error handler → `500` |
-| `GET /latency/check/:id` | **sync** รอ ping เสร็จก่อนตอบ (สูงสุด ~10 วิ: gateway + fallback WAN) · ไม่มี retry · shape: `{ data: { device_id, pea_name, gateway, status, latency_ms, packet_loss, checked_at } }` · 404 ถ้าไม่พบเครื่องหรือไม่มี gateway · **มีผลข้างเคียง** (ดูด้านล่าง) |
-| `GET /test/check-ip/:ip` | probe สดจาก API server (timeout 3 วิ, 3 packets) · **ไม่เขียน DB** · `alive` เป็น boolean เสมอ ไม่เคย null · field อยู่ระดับบนสุด ไม่ได้ห่อใน `data` · 400 ถ้า IP ไม่ถูกรูปแบบ, 500 ถ้า ping ล้มเหลว |
+| `GET /latency/metrics` | ทุกแถว: `live_status`, `alive`, `stale`, `age_seconds` · `meta` |
+| `GET /latency/down` | ยังคืนทุกเครื่องที่**ผลวัดล่าสุด**เป็น down เหมือนเดิม แต่ทุกแถวมี field ข้างบน + `meta.currently_down`, `meta.stale_down` — เครื่อง down ที่ loop ไม่ได้ตรวจนานจะได้ `live_status: unknown` ไม่ใช่ `down` |
+| `GET /latency/status-summary` | `online`/`offline` เดิม**นับผลเก่ารวมไปด้วย** (คงไว้) · เพิ่ม `live: { online, offline, unknown }` ที่นับเฉพาะผลที่ยังสด · `meta` |
+| `POST`/`GET /latency/check/:id` | `live_status`, `alive` (วัดเดี๋ยวนั้นจึงสดเสมอ), `probed_ip` (`gateway` / `wan_ip_fgt`), `attempts` (1 หรือ 2) |
 
-### ปัญหาที่พบระหว่างตรวจ — ควรรู้ก่อนเชื่อม frontend
+**ตัวอย่างจากการทดสอบจริง** — `POST /api/latency/check/1`:
+```json
+{ "success": true, "data": {
+  "device_id": 1, "pea_name": "ผคข. (ทดสอบ)", "gateway": "172.21.223.158",
+  "status": "up", "latency_ms": 17, "packet_loss": 0, "checked_at": "2026-09-27T11:16:02.482Z",
+  "live_status": "up", "alive": true, "probed_ip": "wan_ip_fgt", "attempts": 1 } }
+```
+`probed_ip` เผยสิ่งที่เดิมมองไม่เห็นทันที: **gateway ของเครื่องนี้ไม่ตอบ** แต่ถูกรายงานว่า up เพราะ WAN ตอบแทน (และเป็นเหตุที่เครื่องนี้ถูกวัดช้ากว่าเครื่องอื่นใน batch 7 วินาที)
 
-1. **`GET /latency/check/:id` เป็น GET แต่เขียนข้อมูล** — upsert `DeviceMetrics` ทับผล ping loop และ**ส่งแจ้งเตือน Teams + สร้าง/ปิด DeviceDowntime** ถ้าสถานะเปลี่ยน การเปิด URL นี้ซ้ำ (prefetch, retry ของ browser, crawler) จึงเปลี่ยนสถานะ monitoring และยิงแจ้งเตือนได้ อีกทั้ง**ไม่มี retry** ต่างจาก ping loop ที่มี — กดตรวจเองตอนเครือข่ายสะดุดครั้งเดียวจะบันทึก down + แจ้งเตือนทันที
-2. **`packet_loss` ถูกบังคับเป็น `100` ทุกครั้งที่ `alive=false`** (ทั้ง `check` และ `check-ip`) — ค่าจริงอาจเป็น 33% (เคยวัดได้ใน session ก่อน) ข้อมูลจึงบอกไม่ได้ว่า "ไม่ตอบเลย" กับ "ตอบบางส่วน" ต่างกัน
-3. **`checked_at` ของ ping loop คือเวลาเริ่ม batch** ไม่ใช่เวลาที่ probe เครื่องนั้นจริง — เร็วกว่าเวลาวัดจริงได้ถึง ~30 วิ (probe + retry) ส่วน `check` และ `check-ip` ใช้เวลาหลัง probe เสร็จ
-4. **ไม่มีการบอก probe source** — ถ้า gateway ไม่ตอบแต่ FortiGate WAN ตอบ จะรายงาน `up` พร้อม latency ของ WAN โดยไม่บอกว่าวัดจาก IP ไหน
-5. **ข้อมูลค้างข้ามคืน** — ping loop หยุด 00:00–05:00 ช่วงนั้น `/metrics` และ `/down` คืนผลเก่าสุด 5 ชม. โดยไม่มีสัญญาณบอก
-6. **error ของ `check-ip` รั่ว `error.message`** และ error อื่นผ่าน global handler ที่ **แนบ stack trace เมื่อ `NODE_ENV` ไม่ใช่ `production`**
-7. **"unknown" ไม่มีอยู่จริง** — ไม่มีสถานะแยกสำหรับ "ยังไม่เคยวัด" หรือ "ข้อมูลเก่าเกินไป"
+### แผนแก้การตรวจอุปกรณ์ — ยืนยันปัญหาและขั้นตอน
 
-### ข้อเสนอ additive (ยังไม่ทำ — รอยืนยัน)
+**ยืนยันปัญหา (อ่านจากโค้ดและทดสอบแล้ว):** `GET /api/latency/check/:id` (1) upsert `DeviceMetrics` ทับผลของ loop, (2) ถ้าสถานะเปลี่ยนจะเรียก `sendTeamsNotification` ซึ่ง**ส่ง Teams และสร้าง/ปิด `DeviceDowntime`**, (3) ไม่ต้อง login, (4) เดิม**ไม่มี retry** — การเปิด URL ซ้ำ (prefetch/retry ของ browser/crawler) จึงเปลี่ยนสถานะ monitoring และยิงแจ้งเตือนได้
 
-เติม field ต่อไปนี้ใน `/metrics`, `/down`, `/check/:id` โดยไม่ลบ field เดิม:
+| ระยะ | สถานะ | งาน |
+|---|---|---|
+| **1** | ✅ **ทำแล้ว** | เพิ่ม `POST /api/latency/check/:id` (handler เดียวกัน) · `GET` ยังทำงานเหมือนเดิมแต่ตอบ header `Deprecation: true` + `Link: </api/latency/check/:id>; rel="successor-version"` + `meta.deprecations` · ใช้ probe ร่วมกับ loop จึง**มี retry แล้ว** ลดการแจ้งเตือนผิดจากการกดตรวจตอนเครือข่ายสะดุดครั้งเดียว |
+| **2** | ⏳ frontend | ย้ายทุกจุดที่เรียกเป็น `POST` — ตรวจได้จาก log ว่ายังมี GET เข้ามาหรือไม่ |
+| **3** | ⏳ รอตัดสินใจ | หลังไม่มีผู้เรียก GET แล้ว: เอา `GET` ออก (หรือทำเป็นอ่านอย่างเดียวไม่เขียน/ไม่แจ้งเตือน) |
+| **4** | ⏳ รอตัดสินใจ | ให้ `POST` ต้อง login — **จะทำให้ผู้ใช้ที่ไม่ login กดตรวจไม่ได้** จึงต้องให้เจ้าของระบบตัดสิน ไม่ได้ทำเองในรอบนี้ |
 
-| Field | ที่มา |
-|---|---|
-| `alive` | `true`/`false` จาก `status`; `null` เมื่อ stale |
-| `live_status` | `up` / `down` / `unknown` — `unknown` เมื่อ `checked_at` เก่ากว่า threshold |
-| `probe_source` | `background_loop` / `on_demand_check` — ต้องเพิ่ม column |
-| `probed_ip` | `gateway` / `wan_ip_fgt` — ต้องเพิ่ม column |
-| `meta.stale_after_seconds` | threshold ที่ตกลงกัน — **ต้องให้เจ้าของระบบกำหนด** (ผมไม่ได้กำหนดเองตามที่สเปคห้าม) ข้อเสนอเริ่มต้นคิดจากรอบ loop ≈ 20 นาที และช่วงหยุดกลางคืน |
+ยังไม่มี cooldown ต่อเครื่อง: การกด POST ถี่ๆ ขณะเครื่องขึ้นๆ ลงๆ ยังส่งแจ้งเตือนได้ทุกครั้งที่สถานะเปลี่ยน (retry ช่วยได้บางส่วน)
 
-แยกเป็นงานต่างหาก (ไม่ใช่ additive): ย้าย `check/:id` เป็น `POST`, เก็บ `packet_loss` จริงแทน 100, ใช้เวลา probe จริงเป็น `checked_at`
+### แก้ packet loss (แยกเป็นเรื่องที่ 1)
+
+- **ต้นเหตุ:** `packetLoss` ของ library ถูก parse จากบรรทัดสรุปของ Windows ซึ่ง**นับ "Destination host unreachable" จาก router เป็นการได้รับ** ส่วน `alive` มาจาก `times` ที่นับเฉพาะ echo reply จริง (บรรทัดที่มี `bytes=`/`time=`/`TTL=`)
+- **ผลต่อข้อมูลเดิม:**
+  - `alive=false` → โค้ดเดิมบังคับเป็น 100 ซึ่ง**ถูกต้องอยู่แล้ว** (ไม่มี echo reply จริงเลย) — ข้อความรอบแรกที่ว่าผิดจึงเป็นการวินิจฉัยผิดของผมเอง
+  - `alive=true` → โค้ดเดิมใช้ค่าของ Windows ซึ่ง**ต่ำกว่าความจริงได้** เช่น ตอบจริง 2 ใน 3 + unreachable 1 → Windows บอก 0% จริงคือ 33.33%
+- **แก้:** คำนวณจาก `(ส่ง - echo reply จริง) / ส่ง × 100` (`echoLossPercent`) ใช้ที่ ping loop, `check/:id`, `check-ip` (3 packets) และ `POST /test/ping-check` (2 packets)
+- **ข้อจำกัด:** `latency_ms` ยังมาจากบรรทัด Average ของ Windows — เครื่องที่ตอบ `time<1ms` จะได้ `0` ซึ่งเป็นค่าที่มีความหมาย (เร็วมาก) ไม่ใช่ "ไม่มีข้อมูล"
+
+### แก้เวลาวัด (แยกเป็นเรื่องที่ 2)
+
+- **เดิม:** loop ใช้เวลาเริ่ม batch เป็น `checked_at` ของทุกเครื่องใน batch — เครื่องที่ต้อง fallback หรือ retry ถูกวัดจริงช้ากว่านั้นได้ถึง ~30 วิ
+- **แก้:** `checked_at` = เวลาที่ probe ตัดสินผลของเครื่องนั้นเสร็จ (`measured_at`) แยกรายเครื่อง (ยังเลื่อนตาม `DB_TIMEZONE_OFFSET` เหมือนเดิม และ `describeLiveStatus` ชดเชยค่านี้ตอนคำนวณอายุ)
+- **ยืนยันจาก log จริงหลัง deploy:** batch เดียวกัน เครื่อง 2–10 ได้ `11:14:32` ส่วนเครื่อง 1 (ที่ gateway ไม่ตอบ ต้อง fallback) ได้ `11:14:39` — เดิมจะเป็นเวลาเดียวกันทั้ง 10 เครื่อง
+- `check/:id` และ `check-ip` ใช้เวลาหลัง probe เสร็จอยู่แล้ว ไม่เปลี่ยน
+
+### การทดสอบ N1
+
+- **Unit (`node --test tests/device-status.test.js`) 6/6 ผ่าน** — packet loss จาก echo reply (รวมกรณี Windows บอก 0% แต่จริง 33%, และ Windows บอก 33% แต่จริง 100%), สด/เก่า/ขอบ threshold พอดี, แถว 5 เดือนที่พบใน production เป็น `unknown`, ข้อมูลว่าง/วันที่อ่านไม่ได้/status ไม่รู้จัก, env override, การชดเชย `DB_TIMEZONE_OFFSET`
+- **กับ server จริง:** `/metrics` 197 เครื่องสดทั้งหมด (`live_status: up`), `/down` ว่าง, `/status-summary` มี `live`, `POST check` ได้ field ใหม่, `GET check` ได้ header deprecation, 404 เดิมยังทำงาน, loop เขียน log ต่อเนื่องหลัง refactor
+
+### ยังไม่ได้ทำใน N1
+
+1. **`probed_ip` ยังไม่ถูกเก็บลง DB** — มีเฉพาะใน response ของ `check/:id` ผลจาก loop ไม่มี field นี้ ต้องเพิ่ม column ใน `DeviceMetrics` (migration) ถ้าต้องการให้ `/metrics` บอกได้
+2. **อุปกรณ์ที่ไม่มีแถวใน `DeviceMetrics` เลย** จะไม่ปรากฏใน `/metrics` ทั้งหมด (endpoint ตั้งต้นจาก DeviceMetrics) — ไม่ใช่ `unknown` แต่หายไปจากรายการ ตอนนี้ทุกเครื่องมีแถวแล้ว
+3. **probe ล้มเหลวระดับ process** (spawn ping ไม่ได้) ยังถูกนับเป็น `down` ตามพฤติกรรมเดิม ไม่ได้แยกเป็น `unknown` — การเปลี่ยนต้องแก้ทั้ง loop, การแจ้งเตือน และ DeviceDowntime จึงควรเป็นงานแยก
+4. **Teams bot** (`webhookController` คำสั่ง `status`/`check`) ยังแสดงจาก `status` ดิบ ไม่ได้ใช้ `live_status`
+5. error ของ `check-ip` ยังส่ง `error.message` และ error handler กลางยังแนบ stack trace เมื่อ `NODE_ENV` ไม่ใช่ `production`
 
 ---
 

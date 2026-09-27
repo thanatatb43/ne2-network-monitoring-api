@@ -1,9 +1,7 @@
 const { NetworkDevices, LatencyLogs, LatencyRecent, DeviceMetrics, Sequelize } = require('../models');
 const { Op } = Sequelize;
-const ping = require('ping');
 const { sendTeamsNotification } = require('./notificationService');
-
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const { probeDevice } = require('./deviceProbe');
 
 /**
  * Service to ping all network devices in a continuous staggered loop.
@@ -69,53 +67,10 @@ const startContinuousPingLoop = async () => {
           }
 
           try {
-            // Probes the gateway, falling back to the FortiGate WAN IP if the
-            // gateway doesn't answer. Shared by the initial attempt and the retry
-            // below so both go through the exact same up/down logic. A thrown
-            // error (e.g. the ping process itself failing to spawn/timeout at the
-            // OS level) is treated as "not alive" rather than being left to escape
-            // to the outer catch - that outer catch skips the retry AND the
-            // notification/DeviceDowntime logging below entirely, which previously
-            // let devices flip to "down" with zero notification and zero history,
-            // then silently resurface later with a stale duration borrowed from an
-            // unrelated past incident.
-            const probeOnce = async () => {
-              try {
-                let res = await ping.promise.probe(device.gateway, {
-                  timeout: 5,
-                  extra: ['-n', '3']
-                });
-
-                if (!res.alive && device.wan_ip_fgt) {
-                  const fallbackRes = await ping.promise.probe(device.wan_ip_fgt, {
-                    timeout: 5,
-                    extra: ['-n', '3']
-                  });
-                  if (fallbackRes.alive) {
-                    res = fallbackRes;
-                    console.log(`[PingLoop] ${device.pea_name}: Gateway down, but wan_ip_fgt is UP. Marking as UP.`);
-                  }
-                }
-
-                return res;
-              } catch (probeErr) {
-                console.error(`[PingLoop] Probe error for ${device.pea_name} (${device.gateway}):`, probeErr.message);
-                return { alive: false };
-              }
-            };
-
-            let res = await probeOnce();
-
-            // A device only gets ~1 check per ~20min cycle, so a single failed probe
-            // (transient packet loss, not a real outage) was showing up as a false
-            // "down" for the whole cycle. Give it one more try a few seconds later
-            // before believing it - a real outage will still fail both attempts.
-            if (!res.alive) {
-              await sleep(3000);
-              res = await probeOnce();
-            }
-
-            const newStatus = res.alive ? 'up' : 'down';
+            // Gateway -> WAN fallback -> one retry, packet loss from real echo replies.
+            // Shared with the on-demand /api/latency/check/:id - see deviceProbe.js.
+            const probe = await probeDevice(device);
+            const newStatus = probe.status;
 
             // Detect status change and notify
             const prevStatus = statusMap[device.id];
@@ -130,10 +85,12 @@ const startContinuousPingLoop = async () => {
 
             return {
               device_id: device.id,
-              latency_ms: res.alive ? parseFloat(res.avg) : null,
-              packet_loss: res.alive ? (res.packetLoss ? parseFloat(res.packetLoss) : 0) : 100,
+              latency_ms: probe.latency_ms,
+              packet_loss: probe.packet_loss,
               status: newStatus,
-              checked_at: checkedAt
+              // When this device was actually measured, not when its batch started -
+              // a device needing the retry finishes ~30s after the batch began.
+              checked_at: new Date(probe.measured_at.getTime() + offsetHours * 60 * 60 * 1000)
             };
           } catch (err) {
             console.error(`[PingLoop] Error pinging ${device.pea_name} (${device.gateway}):`, err);

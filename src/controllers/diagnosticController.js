@@ -167,6 +167,7 @@ const getMyIp = async (req, res) => {
 };
 
 const pingLib = require('ping');
+const { echoLossPercent } = require('../services/deviceProbe');
 
 /**
  * Ping multiple IPs and return their status
@@ -193,7 +194,7 @@ const pingMultipleIps = async (req, res) => {
           ip: ip,
           alive: result.alive,
           latency: result.alive ? parseFloat(result.avg) : null,
-          packetLoss: result.alive ? (result.packetLoss ? parseFloat(result.packetLoss) : 0) : 100
+          packetLoss: echoLossPercent(result, 2) // real echo replies of the 2 sent - see deviceProbe.js
         };
       } catch (err) {
         return {
@@ -285,7 +286,7 @@ const checkIp = async (req, res) => {
       ip,
       alive: result.alive,
       latency_ms: result.alive ? parseFloat(result.avg) : null,
-      packet_loss: result.alive ? (result.packetLoss ? parseFloat(result.packetLoss) : 0) : 100,
+      packet_loss: echoLossPercent(result, 3), // real echo replies of the 3 sent - see deviceProbe.js
       site,
       checked_at: new Date().toISOString()
     });
