@@ -1,0 +1,50 @@
+{
+  "verified_at": "2026-09-27T11:37:32.456Z",
+  "dialect": "mysql",
+  "timezone": "+07:00",
+  "source_counts": {
+    "incident_count": 684,
+    "device_count": 180
+  },
+  "tested_year": 2026,
+  "matched_incident_count": 684,
+  "timings": {
+    "create_snapshot_and_summary_ms": 146.23,
+    "incidents_page_ms": 11.96,
+    "dashboard_ms": 40.66,
+    "selectors_ms": 63.55
+  },
+  "source_batch_plan": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "DeviceDowntimes",
+      "type": "range",
+      "possible_keys": "PRIMARY",
+      "key": "PRIMARY",
+      "key_len": "4",
+      "ref": null,
+      "rows": "684",
+      "Extra": "Using where"
+    }
+  ],
+  "snapshot_page_plan": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "DowntimeQueryRow",
+      "type": "ref",
+      "possible_keys": "PRIMARY",
+      "key": "PRIMARY",
+      "key_len": "258",
+      "ref": "const",
+      "rows": "384",
+      "Extra": "Using where; Using filesort"
+    }
+  ],
+  "notes": [
+    "Connection-local temporary copies; persistent source tables were not modified.",
+    "Single warm run on the configured development database; not a load test or a production latency guarantee.",
+    "Snapshot page uses its composite primary key; duration/date sort may use filesort. No speculative source indexes added."
+  ]
+}
